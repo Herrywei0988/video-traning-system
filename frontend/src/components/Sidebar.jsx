@@ -12,8 +12,11 @@ export default function Sidebar() {
   const [stats, setStats] = useState(null)
 
   useEffect(() => {
-    api.get('/api/stats').then(s => setStats(s)).catch(() => {})
-  }, [])
+  const load = () => api.get('/api/stats').then(s => setStats(s)).catch(() => {})
+  load()
+  const timer = setInterval(load, 30000)
+  return () => clearInterval(timer)
+}, [])
 
   return (
     <div className="sidebar">

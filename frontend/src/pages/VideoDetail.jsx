@@ -123,6 +123,20 @@ export default function VideoDetail() {
     await loadTasks()
   }
 
+  const deleteTask = async (taskId) => {
+  if (!confirm('確定刪除此任務？')) return
+  await api.delete(`/api/tasks/${taskId}`)
+  await loadTasks()
+  showToast('任務已刪除', 'success')
+}
+
+const clearViews = async () => {
+  if (!confirm('確定清除所有觀看紀錄？')) return
+  await api.delete(`/api/videos/${id}/views`)
+  await loadViews()
+  showToast('觀看紀錄已清除', 'success')
+}
+
   const submitView = async () => {
     try {
       await api.post(`/api/videos/${id}/views`, {
@@ -427,6 +441,7 @@ ${faq.map(f => `
                   tasks={tasks}
                   onToggle={toggleTask}
                   onAdd={() => setTaskOpen(true)}
+                  onDelete={deleteTask}
                 />
               )}
               {tab === 'faq' && <TabFAQ analysis={analysis} />}
@@ -436,8 +451,13 @@ ${faq.map(f => `
             {/* Sidebar: views */}
             <div>
               <div className="panel">
-                <div className="panel-title" style={{ marginBottom: 14 }}>
-                  <div className="panel-icon">👁️</div>觀看紀錄
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <div className="panel-title">
+                    <div className="panel-icon">👁️</div>觀看紀錄
+                  </div>
+                  {views.length > 0 && (
+                    <button className="btn btn-outline btn-sm" onClick={clearViews}>清除全部</button>
+                  )}
                 </div>
                 {views.length === 0 ? (
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>尚無觀看紀錄</div>
@@ -601,7 +621,7 @@ function TabKeyPoints({ analysis }) {
   )
 }
 
-function TabActions({ analysis, tasks, onToggle, onAdd }) {
+function TabActions({ analysis, tasks, onToggle, onAdd, onDelete }) {
   const items = analysis?.action_items ?? []
   return (
     <>
@@ -648,6 +668,12 @@ function TabActions({ analysis, tasks, onToggle, onAdd }) {
                   {t.due_date && ` 📅 ${t.due_date}`}
                 </div>
               </div>
+              <button
+                onClick={() => onDelete(t.id)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error)', fontSize: 14, padding: '0 4px' }}
+              >
+                🗑️
+              </button>
             </div>
           ))
         }

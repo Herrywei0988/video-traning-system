@@ -13,9 +13,15 @@ venv/
 # Env & Secrets
 .env
 .env.local
+.env.*
+
+# --- Project Specific ---
+backend/training.db
+backend/uploads/*
+# 預防萬一，排除所有資料庫檔案
+*.db
+*.sqlite3
 
 # System files
 *.Zone.Identifier
 .DS_Store
-*:Zone.Identifier
-*.Zone.Identifier

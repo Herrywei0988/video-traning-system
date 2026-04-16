@@ -125,8 +125,10 @@ def list_videos(category: str = None, status: str = None,
     query = "SELECT * FROM videos WHERE 1=1"
     params = []
     if category and category != 'all':
-        query += " AND category = ?"
-        params.append(category)
+        cats = category.split(',')
+        placeholders = ','.join(['?' for _ in cats])
+        query += f" AND category IN ({placeholders})"
+        params.extend(cats)
     if status and status != 'all':
         query += " AND status = ?"
         params.append(status)

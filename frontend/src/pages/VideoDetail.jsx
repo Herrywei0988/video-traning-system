@@ -157,6 +157,100 @@ export default function VideoDetail() {
     )
   }
 
+  const exportPDF = () => {
+  if (!video || !analysis) return
+  const topics = analysis.topics ?? []
+  const keyPoints = analysis.key_points ?? []
+  const actionItems = analysis.action_items ?? []
+  const faq = analysis.faq ?? []
+
+  const html = `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>${video.title} — 培訓分析報告</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Microsoft JhengHei', Arial, sans-serif; font-size: 13px; color: #1e293b; padding: 32px; line-height: 1.7; }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  h2 { font-size: 14px; font-weight: 700; margin: 20px 0 8px; padding: 6px 10px; background: #f1f5f9; border-left: 4px solid #3b82f6; }
+  .meta { font-size: 11px; color: #64748b; margin-bottom: 12px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #dbeafe; color: #1d4ed8; margin: 2px; }
+  .summary { font-size: 13px; line-height: 1.9; margin-bottom: 16px; }
+  .role-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; }
+  .role-label { font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; }
+  .kp { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+  .kp-num { width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+  .kp-title { font-weight: 600; font-size: 13px; }
+  .kp-detail { font-size: 12px; color: #475569; margin-top: 2px; }
+  .action { display: flex; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; align-items: flex-start; }
+  .priority { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-top: 2px; flex-shrink: 0; }
+  .高 { background: #fee2e2; color: #dc2626; }
+  .中 { background: #fef9c3; color: #ca8a04; }
+  .低 { background: #dcfce7; color: #16a34a; }
+  .faq-q { font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+  .faq-a { font-size: 12px; color: #475569; padding-left: 10px; border-left: 3px solid #e2e8f0; }
+  .faq-item { margin-bottom: 12px; }
+  .footer { margin-top: 32px; font-size: 11px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+  @media print { body { padding: 16px; } }
+</style>
+</head>
+<body>
+<h1>${video.title}</h1>
+<div class="meta">
+  📅 上傳：${formatDate(video.uploaded_at)}
+  ${video.processed_at ? ` ⚙️ 分析完成：${formatDate(video.processed_at)}` : ''}
+  ${video.duration ? ` ⏱ 時長：${formatDuration(video.duration)}` : ''}
+  　👤 ${video.uploader_name}　📁 ${video.category}
+</div>
+${topics.length > 0 ? `<div>${topics.map(t => `<span class="tag">${t}</span>`).join('')}</div><br>` : ''}
+
+<h2>📋 整體摘要</h2>
+<div class="summary">${analysis.summary ?? '—'}</div>
+
+<h2>👔 主管版摘要</h2>
+<div class="role-box"><div class="role-label">EXECUTIVE SUMMARY</div>${analysis.exec_summary ?? '—'}</div>
+
+<h2>🏫 班主任版摘要</h2>
+<div class="role-box"><div class="role-label">MANAGER SUMMARY</div>${analysis.manager_summary ?? '—'}</div>
+
+<h2>👨‍🏫 老師版重點</h2>
+<div class="role-box"><div class="role-label">TEACHER NOTES</div>${analysis.teacher_summary ?? '—'}</div>
+
+${keyPoints.length > 0 ? `
+<h2>📌 重點整理</h2>
+${keyPoints.map((kp, i) => `
+<div class="kp">
+  <div class="kp-num">${i + 1}</div>
+  <div><div class="kp-title">${kp.point ?? ''}</div><div class="kp-detail">${kp.detail ?? ''}</div></div>
+</div>`).join('')}` : ''}
+
+${actionItems.length > 0 ? `
+<h2>✅ 待辦事項</h2>
+${actionItems.map(item => `
+<div class="action">
+  <span class="priority ${item.priority ?? '中'}">${item.priority ?? '中'}</span>
+  <div><div style="font-weight:600">${item.task}</div><div style="font-size:11px;color:#64748b">負責人：${item.owner ?? '—'}</div></div>
+</div>`).join('')}` : ''}
+
+${faq.length > 0 ? `
+<h2>❓ 常見問答</h2>
+${faq.map(f => `
+<div class="faq-item">
+  <div class="faq-q">Q：${f.question}</div>
+  <div class="faq-a">A：${f.answer}</div>
+</div>`).join('')}` : ''}
+
+<div class="footer">長頸鹿培訓知識整理系統 · 此報告由 AI 自動產生，僅供參考</div>
+</body>
+</html>`
+
+  const w = window.open('', '_blank')
+  w.document.write(html)
+  w.document.close()
+  setTimeout(() => w.print(), 500)
+}
+
   // ── Render helpers ────────────────────────────────────
 
   if (loading) return (
@@ -205,6 +299,11 @@ export default function VideoDetail() {
       <div className="topbar">
         <Link to="/" className="btn btn-outline btn-sm">← 返回列表</Link>
         <div className="topbar-title" style={{ flex: 1 }}>{video.title}</div>
+        
+        {video.status === 'done' && analysis && (
+    <button className="btn btn-outline btn-sm" onClick={exportPDF}>📄 匯出報告</button>
+  )}
+
         <button className="btn btn-outline btn-sm" onClick={() => setEditOpen(true)}>✏️ 編輯</button>
         <button className="btn btn-outline btn-sm" onClick={() => setViewOpen(true)}>👁️ 記錄觀看</button>
         {video.status === 'done' && (

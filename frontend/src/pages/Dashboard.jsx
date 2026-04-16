@@ -13,6 +13,7 @@ const TYPE_PILLS = [
 ]
 
 const CATEGORIES = ['all','招生','續約','教學','班務','家長溝通','培訓','行政','品質管理','未分類']
+const TOPICS = ['招生','續約','教學','班務','家長溝通','培訓','行政','品質管理']
 const STATUSES   = [
   { value: 'all', label: '所有狀態' },
   { value: 'done', label: '已完成' },
@@ -29,6 +30,7 @@ export default function Dashboard() {
   const [category, setCategory] = useState('all')
   const [status,   setStatus]   = useState('all')
   const [fileType, setFileType] = useState('all')
+  const [topics, setTopics] = useState([])
   const { showToast } = useToast()
 
   const loadStats = useCallback(async () => {
@@ -42,10 +44,15 @@ export default function Dashboard() {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      if (search)                params.set('search', search)
-      if (category !== 'all')    params.set('category', category)
-      if (status !== 'all')      params.set('status', status)
-      if (fileType !== 'all')    params.set('file_type', fileType)
+      if (search)             params.set('search', search)
+      if (status !== 'all')   params.set('status', status)
+      if (fileType !== 'all') params.set('file_type', fileType)
+
+      if (topics.length > 0) {
+        params.set('category', topics.join(','))
+      } else if (category !== 'all') {
+        params.set('category', category)
+      }
       const { videos } = await api.get(`/api/videos?${params}`)
       setVideos(videos)
     } catch (e) {
@@ -53,7 +60,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false)
     }
-  }, [search, category, status, fileType, showToast])
+  }, [search, category, status, fileType, topics, showToast])
 
   // Debounce search
   useEffect(() => {
@@ -114,6 +121,47 @@ export default function Dashboard() {
               {p.label}
             </button>
           ))}
+        </div>
+
+        {/* Topic tags */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+          {TOPICS.map(t => {
+            const active = topics.includes(t)
+            return (
+              <button
+                key={t}
+                onClick={() => setTopics(prev =>
+                  prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]
+                )}
+                style={{
+                  padding: '4px 14px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: '1.5px solid',
+                  borderColor: active ? 'var(--primary)' : 'var(--border)',
+                  background: active ? 'var(--primary)' : 'transparent',
+                  color: active ? '#fff' : 'var(--text-muted)',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {t}
+              </button>
+            )
+          })}
+          {topics.length > 0 && (
+            <button
+              onClick={() => setTopics([])}
+              style={{
+                padding: '4px 10px', borderRadius: 20, fontSize: 12,
+                cursor: 'pointer', border: '1.5px solid var(--error)',
+                background: 'transparent', color: 'var(--error)', fontWeight: 600,
+              }}
+            >
+              ✕ 清除
+            </button>
+          )}
         </div>
 
         {/* Filters */}

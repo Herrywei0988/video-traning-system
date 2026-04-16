@@ -1,0 +1,21 @@
+# Node.js
+node_modules/
+.next/
+dist/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Env & Secrets
+.env
+.env.local
+
+# System files
+*.Zone.Identifier
+.DS_Store
+*:Zone.Identifier
+*.Zone.Identifier

@@ -1,23 +1,56 @@
-const BASE = ''  // same origin in production; Vite proxy handles /api in dev
+const TOKEN_KEY = 'giraffe_token'
 
-async function request(method, path, data) {
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json' },
+function getHeaders(extra = {}) {
+  const token = localStorage.getItem(TOKEN_KEY)
+  const headers = { ...extra }
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
+
+async function handle(res) {
+  if (res.status === 401) {
+    // Token expired or invalid — clear and redirect to login
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem('giraffe_user')
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login'
+    }
+    throw new Error('未登入')
   }
-  if (data !== undefined) opts.body = JSON.stringify(data)
-  const res = await fetch(BASE + path, opts)
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
-    throw new Error(err.detail || `HTTP ${res.status}`)
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail || `HTTP ${res.status}`)
   }
   return res.json()
 }
 
 export const api = {
-  get:    (path)        => request('GET', path),
-  post:   (path, data)  => request('POST', path, data),
-  put:    (path, data)  => request('PUT', path, data),
-  patch:  (path, data)  => request('PATCH', path, data ?? {}),
-  delete: (path)        => request('DELETE', path),
+  get: (url) => fetch(url, { headers: getHeaders() }).then(handle),
+
+  post: (url, body) =>
+    fetch(url, {
+      method: 'POST',
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+    }).then(handle),
+
+  put: (url, body) =>
+    fetch(url, {
+      method: 'PUT',
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+    }).then(handle),
+
+  patch: (url, body = {}) =>
+    fetch(url, {
+      method: 'PATCH',
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+    }).then(handle),
+
+  delete: (url) =>
+    fetch(url, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    }).then(handle),
 }

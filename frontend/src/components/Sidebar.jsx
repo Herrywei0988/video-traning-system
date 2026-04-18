@@ -1,76 +1,95 @@
 import { NavLink } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import { api } from '../utils/api.js'
+import { useAuth } from '../context/AuthContext.jsx'
 
-const NAV = [
-  { to: '/',       icon: '🏠', label: '總覽' },
-  { to: '/upload', icon: '⬆️', label: '上傳資料' },
+const MENU = [
+  { to: '/',       icon: '📊', label: '總覽' },
+  { to: '/upload', icon: '⬆️', label: '上傳資料', adminOnly: true },
   { to: '/search', icon: '🔍', label: '知識庫搜尋' },
 ]
 
-export default function Sidebar() {
-  const [stats, setStats] = useState(null)
+const ROLE_LABEL = {
+  admin: '👑 管理員',
+  principal: '🏫 分校主任',
+  teacher: '👨‍🏫 老師',
+  staff: '📋 行政',
+}
 
-  useEffect(() => {
-  const load = () => api.get('/api/stats').then(s => setStats(s)).catch(() => {})
-  load()
-  const timer = setInterval(load, 30000)
-  return () => clearInterval(timer)
-}, [])
+export default function Sidebar() {
+  const { user, logout, isAdmin } = useAuth()
 
   return (
-    <div className="sidebar">
-      <div className="sidebar-logo">
-        <div className="logo-icon">🎬</div>
-        <div className="logo-name">培訓知識整理系統</div>
-        <div className="logo-sub">Training Knowledge Platform</div>
+    <aside className="sidebar">
+      <div className="sidebar-header">
+        <div className="sidebar-logo">🦒</div>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>培訓知識整理系統</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Training Knowledge</div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, padding: '0 20px', marginBottom: 8, marginTop: 16 }}>
+        主要功能
       </div>
 
       <nav className="sidebar-nav">
-        <div className="sidebar-section-label">主要功能</div>
-        {NAV.map(item => (
+        {MENU.filter(m => !m.adminOnly || isAdmin).map(m => (
           <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/'}
-            className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+            key={m.to}
+            to={m.to}
+            end={m.to === '/'}
+            className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
           >
-            <span className="nav-icon">{item.icon}</span>
-            <span>{item.label}</span>
+            <span className="sidebar-icon">{m.icon}</span>
+            <span>{m.label}</span>
           </NavLink>
         ))}
       </nav>
 
-      {/* 快速統計 */}
-      {stats && (
-        <div style={{
-          margin: '16px 12px',
-          background: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 8,
-          padding: '12px 14px',
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 10, letterSpacing: 1 }}>
-            快速統計
-          </div>
-          {[
-            { label: '資料總數', value: stats.total,       color: '#60a5fa' },
-            { label: '已完成',   value: stats.done,        color: '#34d399' },
-            { label: '處理中',   value: stats.pending,     color: '#fbbf24' },
-            { label: '觀看次數', value: stats.total_views, color: '#a78bfa' },
-          ].map(s => (
-            <div key={s.label} style={{
-              display: 'flex', justifyContent: 'space-between',
-              alignItems: 'center', marginBottom: 7,
+      {/* User card at bottom */}
+      <div style={{ marginTop: 'auto', padding: 16, borderTop: '1px solid var(--border)' }}>
+        {user && (
+          <>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '8px 10px', background: 'var(--bg-subtle, #f8fafc)',
+              borderRadius: 8, marginBottom: 8,
             }}>
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{s.label}</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: s.color }}>{s.value ?? '—'}</span>
+              <div style={{
+                width: 36, height: 36, borderRadius: '50%',
+                background: 'var(--primary)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 700, fontSize: 14, flexShrink: 0,
+              }}>
+                {(user.name?.[0] || '?').toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {user.name}
+                </div>
+                <div style={{ fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {ROLE_LABEL[user.role] || user.role}
+                </div>
+              </div>
             </div>
-          ))}
-        </div>
-      )}
-
-      <div className="sidebar-footer">長頸鹿培訓系統 v3.0</div>
-    </div>
+            <button
+              onClick={logout}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                fontSize: 12,
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                fontWeight: 500,
+              }}
+            >
+              🚪 登出
+            </button>
+          </>
+        )}
+      </div>
+    </aside>
   )
 }

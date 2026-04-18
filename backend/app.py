@@ -3,11 +3,11 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 import re
 
@@ -15,6 +15,7 @@ load_dotenv()
 
 import database as db
 import ai_service as ai
+import auth
 
 app = FastAPI(title="培訓知識整理系統", version="3.0.0")
 
@@ -51,6 +52,43 @@ CONTENT_TYPES = {
 
 db.init_db()
 
+# ── API: Auth ─────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class LoginResponse(BaseModel):
+    token: str
+    user: dict
+
+@app.post("/api/auth/login", response_model=LoginResponse)
+async def login(body: LoginRequest):
+    user = db.get_user_by_email(body.email)
+    if not user:
+        raise HTTPException(401, "帳號或密碼錯誤")
+    if not user.get("is_active"):
+        raise HTTPException(403, "此帳號已停用")
+    if not auth.verify_password(body.password, user["password_hash"]):
+        raise HTTPException(401, "帳號或密碼錯誤")
+    
+    db.update_last_login(user["id"])
+    token = auth.create_token(user["id"])
+    return {
+        "token": token,
+        "user": db.public_user(user),
+    }
+
+@app.get("/api/auth/me")
+async def me(user: dict = Depends(auth.get_current_user)):
+    """Return currently logged-in user."""
+    return {"user": user}
+
+@app.post("/api/auth/logout")
+async def logout(user: dict = Depends(auth.get_current_user)):
+    """Logout is client-side (discard token). This endpoint exists for future token blacklisting."""
+    return {"success": True, "message": "已登出"}
+
 # ── Background processing ─────────────────────────────────
 
 def process_file_bg(video_id: str, filepath: str, title: str, description: str):
@@ -78,7 +116,9 @@ async def upload_file(
     description: str = Form(""),
     category: str = Form("未分類"),
     uploader_name: str = Form("管理員"),
+    user: dict = Depends(auth.require_admin),
 ):
+    
     suffix = Path(file.filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"不支援的格式：{suffix}")

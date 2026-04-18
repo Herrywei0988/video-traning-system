@@ -111,6 +111,31 @@ def init_db():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS branches (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            code TEXT UNIQUE NOT NULL,
+            is_headquarters INTEGER DEFAULT 0,
+            created_at TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'teacher',
+            branch_id TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT,
+            last_login_at TEXT,
+            FOREIGN KEY (branch_id) REFERENCES branches(id)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -358,3 +383,105 @@ def get_stats() -> Dict:
         "categories": [dict(r) for r in cats],
         "file_types": [dict(r) for r in types],
     }
+
+# ── Branches ─────────────────────────────────────────────
+
+def create_branch(branch_id: str, name: str, code: str, is_headquarters: bool = False) -> Dict:
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute("""
+        INSERT INTO branches (id, name, code, is_headquarters, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (branch_id, name, code, 1 if is_headquarters else 0, now))
+    conn.commit()
+    conn.close()
+    return get_branch(branch_id)
+
+def get_branch(branch_id: str) -> Optional[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM branches WHERE id = ?", (branch_id,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_branch_by_code(code: str) -> Optional[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM branches WHERE code = ?", (code,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def list_branches() -> List[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM branches ORDER BY is_headquarters DESC, name ASC")
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+# ── Users ────────────────────────────────────────────────
+
+def create_user(user_id: str, email: str, password_hash: str, name: str,
+                role: str = 'teacher', branch_id: str = None) -> Dict:
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute("""
+        INSERT INTO users (id, email, password_hash, name, role, branch_id, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    """, (user_id, email.lower(), password_hash, name, role, branch_id, now))
+    conn.commit()
+    conn.close()
+    return get_user(user_id)
+
+def get_user(user_id: str) -> Optional[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_user_by_email(email: str) -> Optional[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE email = ?", (email.lower(),))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def list_users(branch_id: str = None) -> List[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    if branch_id:
+        c.execute("SELECT * FROM users WHERE branch_id = ? ORDER BY created_at DESC", (branch_id,))
+    else:
+        c.execute("SELECT * FROM users ORDER BY created_at DESC")
+    rows = c.fetchall()
+    conn.close()
+    # Remove password_hash from returned data
+    result = []
+    for r in rows:
+        d = dict(r)
+        d.pop('password_hash', None)
+        result.append(d)
+    return result
+
+def update_last_login(user_id: str):
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, user_id))
+    conn.commit()
+    conn.close()
+
+def public_user(user: Dict) -> Dict:
+    """Return user dict without sensitive fields."""
+    if not user:
+        return None
+    d = dict(user)
+    d.pop('password_hash', None)
+    return d

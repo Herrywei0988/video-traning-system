@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../utils/api.js'
 import { useToast } from '../context/ToastContext.jsx'
@@ -29,6 +29,9 @@ export default function VideoDetail() {
   const [loading,  setLoading]  = useState(true)
   const [tab,      setTab]      = useState('summary')
   const [role,     setRole]     = useState('exec')
+
+  const mediaRef = useRef(null)
+  const [mediaError, setMediaError] = useState(false)
 
   // Modals
   const [editOpen,     setEditOpen]     = useState(false)
@@ -92,6 +95,19 @@ export default function VideoDetail() {
   })
 
   // ── Actions ───────────────────────────────────────────
+
+   const formatSeconds = (s) => {
+    const mm = Math.floor(s / 60)
+    const ss = Math.floor(s % 60)
+    return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
+  }
+
+  const seekTo = (seconds) => {
+    if (!mediaRef.current) return
+    mediaRef.current.currentTime = seconds
+    mediaRef.current.play().catch(() => {})
+    mediaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 
   const saveEdit = async () => {
     if (!editTitle.trim()) { showToast('標題不可空白', 'error'); return }
@@ -171,99 +187,121 @@ const clearViews = async () => {
     )
   }
 
-  const exportPDF = () => {
-  if (!video || !analysis) return
-  const topics = analysis.topics ?? []
-  const keyPoints = analysis.key_points ?? []
-  const actionItems = analysis.action_items ?? []
-  const faq = analysis.faq ?? []
+  const exportPDF = (mode = 'full') => {
+      if (!video || !analysis) return
+      const topics = analysis.topics ?? []
+      const keyPoints = analysis.key_points ?? []
+      const actionItems = analysis.action_items ?? []
+      const faq = analysis.faq ?? []
 
-  const html = `<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-<meta charset="UTF-8">
-<title>${video.title} — 培訓分析報告</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Microsoft JhengHei', Arial, sans-serif; font-size: 13px; color: #1e293b; padding: 32px; line-height: 1.7; }
-  h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
-  h2 { font-size: 14px; font-weight: 700; margin: 20px 0 8px; padding: 6px 10px; background: #f1f5f9; border-left: 4px solid #3b82f6; }
-  .meta { font-size: 11px; color: #64748b; margin-bottom: 12px; }
-  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #dbeafe; color: #1d4ed8; margin: 2px; }
-  .summary { font-size: 13px; line-height: 1.9; margin-bottom: 16px; }
-  .role-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; }
-  .role-label { font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; }
-  .kp { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
-  .kp-num { width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
-  .kp-title { font-weight: 600; font-size: 13px; }
-  .kp-detail { font-size: 12px; color: #475569; margin-top: 2px; }
-  .action { display: flex; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; align-items: flex-start; }
-  .priority { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-top: 2px; flex-shrink: 0; }
-  .高 { background: #fee2e2; color: #dc2626; }
-  .中 { background: #fef9c3; color: #ca8a04; }
-  .低 { background: #dcfce7; color: #16a34a; }
-  .faq-q { font-weight: 600; font-size: 13px; margin-bottom: 3px; }
-  .faq-a { font-size: 12px; color: #475569; padding-left: 10px; border-left: 3px solid #e2e8f0; }
-  .faq-item { margin-bottom: 12px; }
-  .footer { margin-top: 32px; font-size: 11px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 12px; }
-  @media print { body { padding: 16px; } }
-</style>
-</head>
-<body>
-<h1>${video.title}</h1>
-<div class="meta">
-  📅 上傳：${formatDate(video.uploaded_at)}
-  ${video.processed_at ? ` ⚙️ 分析完成：${formatDate(video.processed_at)}` : ''}
-  ${video.duration ? ` ⏱ 時長：${formatDuration(video.duration)}` : ''}
-  　👤 ${video.uploader_name}　📁 ${video.category}
-</div>
-${topics.length > 0 ? `<div>${topics.map(t => `<span class="tag">${t}</span>`).join('')}</div><br>` : ''}
+      const roleTitle = {
+        full: '完整分析報告',
+        exec: '主管版報告',
+        manager: '班主任版報告',
+        teacher: '老師版報告',
+      }[mode]
 
-<h2>📋 整體摘要</h2>
-<div class="summary">${analysis.summary ?? '—'}</div>
+      const showRoleSection = (roleKey) => {
+        if (mode === 'full') return true
+        return mode === roleKey
+      }
 
-<h2>👔 主管版摘要</h2>
-<div class="role-box"><div class="role-label">EXECUTIVE SUMMARY</div>${analysis.exec_summary ?? '—'}</div>
+      const html = `<!DOCTYPE html>
+  <html lang="zh-TW">
+  <head>
+  <meta charset="UTF-8">
+  <title>${video.title} — ${roleTitle}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Microsoft JhengHei', Arial, sans-serif; font-size: 13px; color: #1e293b; padding: 32px; line-height: 1.7; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    h2 { font-size: 14px; font-weight: 700; margin: 20px 0 8px; padding: 6px 10px; background: #f1f5f9; border-left: 4px solid #3b82f6; }
+    .meta { font-size: 11px; color: #64748b; margin-bottom: 12px; }
+    .role-banner { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; background: #dbeafe; color: #1d4ed8; margin-bottom: 12px; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #dbeafe; color: #1d4ed8; margin: 2px; }
+    .summary { font-size: 13px; line-height: 1.9; margin-bottom: 16px; }
+    .role-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; }
+    .role-label { font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; }
+    .kp { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+    .kp-num { width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+    .kp-title { font-weight: 600; font-size: 13px; }
+    .kp-detail { font-size: 12px; color: #475569; margin-top: 2px; }
+    .action { display: flex; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; align-items: flex-start; }
+    .priority { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-top: 2px; flex-shrink: 0; }
+    .高 { background: #fee2e2; color: #dc2626; }
+    .中 { background: #fef9c3; color: #ca8a04; }
+    .低 { background: #dcfce7; color: #16a34a; }
+    .faq-q { font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+    .faq-a { font-size: 12px; color: #475569; padding-left: 10px; border-left: 3px solid #e2e8f0; }
+    .faq-item { margin-bottom: 12px; }
+    .footer { margin-top: 32px; font-size: 11px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+    @media print { body { padding: 16px; } }
+  </style>
+  </head>
+  <body>
+  <div class="role-banner">${roleTitle}</div>
+  <h1>${video.title}</h1>
+  <div class="meta">
+    📅 上傳：${formatDate(video.uploaded_at)}
+    ${video.processed_at ? ` ⚙️ 分析完成：${formatDate(video.processed_at)}` : ''}
+    ${video.duration ? ` ⏱ 時長：${formatDuration(video.duration)}` : ''}
+    　👤 ${video.uploader_name}　📁 ${video.category}
+  </div>
+  ${topics.length > 0 ? `<div>${topics.map(t => `<span class="tag">${t}</span>`).join('')}</div><br>` : ''}
 
-<h2>🏫 班主任版摘要</h2>
-<div class="role-box"><div class="role-label">MANAGER SUMMARY</div>${analysis.manager_summary ?? '—'}</div>
+  ${mode === 'full' ? `
+  <h2>📋 整體摘要</h2>
+  <div class="summary">${analysis.summary ?? '—'}</div>
+  ` : ''}
 
-<h2>👨‍🏫 老師版重點</h2>
-<div class="role-box"><div class="role-label">TEACHER NOTES</div>${analysis.teacher_summary ?? '—'}</div>
+  ${showRoleSection('exec') ? `
+  <h2>👔 主管版摘要</h2>
+  <div class="role-box"><div class="role-label">EXECUTIVE SUMMARY</div>${analysis.exec_summary ?? '—'}</div>
+  ` : ''}
 
-${keyPoints.length > 0 ? `
-<h2>📌 重點整理</h2>
-${keyPoints.map((kp, i) => `
-<div class="kp">
-  <div class="kp-num">${i + 1}</div>
-  <div><div class="kp-title">${kp.point ?? ''}</div><div class="kp-detail">${kp.detail ?? ''}</div></div>
-</div>`).join('')}` : ''}
+  ${showRoleSection('manager') ? `
+  <h2>🏫 班主任版摘要</h2>
+  <div class="role-box"><div class="role-label">MANAGER SUMMARY</div>${analysis.manager_summary ?? '—'}</div>
+  ` : ''}
 
-${actionItems.length > 0 ? `
-<h2>✅ 待辦事項</h2>
-${actionItems.map(item => `
-<div class="action">
-  <span class="priority ${item.priority ?? '中'}">${item.priority ?? '中'}</span>
-  <div><div style="font-weight:600">${item.task}</div><div style="font-size:11px;color:#64748b">負責人：${item.owner ?? '—'}</div></div>
-</div>`).join('')}` : ''}
+  ${showRoleSection('teacher') ? `
+  <h2>👨‍🏫 老師版重點</h2>
+  <div class="role-box"><div class="role-label">TEACHER NOTES</div>${analysis.teacher_summary ?? '—'}</div>
+  ` : ''}
 
-${faq.length > 0 ? `
-<h2>❓ 常見問答</h2>
-${faq.map(f => `
-<div class="faq-item">
-  <div class="faq-q">Q：${f.question}</div>
-  <div class="faq-a">A：${f.answer}</div>
-</div>`).join('')}` : ''}
+  ${keyPoints.length > 0 ? `
+  <h2>📌 重點整理</h2>
+  ${keyPoints.map((kp, i) => `
+  <div class="kp">
+    <div class="kp-num">${i + 1}</div>
+    <div><div class="kp-title">${kp.point ?? ''}</div><div class="kp-detail">${kp.detail ?? ''}</div></div>
+  </div>`).join('')}` : ''}
 
-<div class="footer">長頸鹿培訓知識整理系統 · 此報告由 AI 自動產生，僅供參考</div>
-</body>
-</html>`
+  ${actionItems.length > 0 ? `
+  <h2>✅ 待辦事項</h2>
+  ${actionItems.map(item => `
+  <div class="action">
+    <span class="priority ${item.priority ?? '中'}">${item.priority ?? '中'}</span>
+    <div><div style="font-weight:600">${item.task}</div><div style="font-size:11px;color:#64748b">負責人：${item.owner ?? '—'}</div></div>
+  </div>`).join('')}` : ''}
 
-  const w = window.open('', '_blank')
-  w.document.write(html)
-  w.document.close()
-  setTimeout(() => w.print(), 500)
-}
+  ${faq.length > 0 ? `
+  <h2>❓ 常見問答</h2>
+  ${faq.map(f => `
+  <div class="faq-item">
+    <div class="faq-q">Q：${f.question}</div>
+    <div class="faq-a">A：${f.answer}</div>
+  </div>`).join('')}` : ''}
+
+  <div class="footer">長頸鹿培訓知識整理系統 · 此報告由 AI 自動產生，僅供參考</div>
+  </body>
+  </html>`
+
+      const w = window.open('', '_blank')
+      w.document.write(html)
+      w.document.close()
+      setTimeout(() => w.print(), 500)
+    }
 
   // ── Render helpers ────────────────────────────────────
 
@@ -315,8 +353,15 @@ ${faq.map(f => `
         <div className="topbar-title" style={{ flex: 1 }}>{video.title}</div>
         
         {video.status === 'done' && analysis && (
-    <button className="btn btn-outline btn-sm" onClick={exportPDF}>📄 匯出報告</button>
-  )}
+          <>
+            <button className="btn btn-outline btn-sm" onClick={() => exportPDF(role)}>
+              📄 匯出{role === 'exec' ? '主管版' : role === 'manager' ? '班主任版' : '老師版'}
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => exportPDF('full')}>
+              🗂 完整版
+            </button>
+          </>
+        )}
 
         <button className="btn btn-outline btn-sm" onClick={() => setEditOpen(true)}>✏️ 編輯</button>
         <button className="btn btn-outline btn-sm" onClick={() => setViewOpen(true)}>👁️ 記錄觀看</button>
@@ -366,6 +411,136 @@ ${faq.map(f => `
             </div>
           )}
         </div>
+
+        {/* Media player: only for video/audio */}
+        {video.status === 'done' && (video.file_type === 'video' || video.file_type === 'audio') && !mediaError && (
+          <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
+            {video.file_type === 'video' ? (
+              <video
+                ref={mediaRef}
+                src={`/api/videos/${id}/file`}
+                controls
+                onError={() => setMediaError(true)}
+                style={{ width: '100%', display: 'block', maxHeight: 480, background: '#000' }}
+              />
+            ) : (
+              <div style={{ padding: 16 }}>
+                <audio
+                  ref={mediaRef}
+                  src={`/api/videos/${id}/file`}
+                  controls
+                  onError={() => setMediaError(true)}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Fallback when media cannot play */}
+        {video.status === 'done' && (video.file_type === 'video' || video.file_type === 'audio') && mediaError && (
+          <div className="panel" style={{ background: 'var(--warning-light)', borderLeft: '4px solid var(--warning)' }}>
+            <div style={{ fontSize: 13, color: '#92400e' }}>
+              ⚠️ 此檔案格式瀏覽器無法直接播放，但 AI 分析已完成。段落跳轉功能需要可播放的格式（建議 MP4 或 MP3）。
+            </div>
+          </div>
+        )}
+
+        {/* Notice for document/pptx file types */}
+        {video.status === 'done' && (video.file_type === 'document' || video.file_type === 'pptx') && (
+          <div className="panel" style={{ background: '#f0f9ff', borderLeft: '4px solid #0284c7' }}>
+            <div style={{ fontSize: 13, color: '#075985', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontSize: 20 }}>
+                {video.file_type === 'pptx' ? '📊' : '📄'}
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 2 }}>
+                  {video.file_type === 'pptx' ? '投影片檔案' : '文件檔案'}已完成 AI 整理
+                </div>
+                <div style={{ fontSize: 12, color: '#0369a1' }}>
+                  {video.file_type === 'pptx'
+                    ? '共 ' + (video.page_count ?? '—') + ' 張投影片 · 原始投影片請聯繫總部取得，此處僅顯示 AI 整理後的知識內容'
+                    : '文件原始內容請聯繫總部取得，此處僅顯示 AI 整理後的重點'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 本片行動清單 — 根據當前角色過濾 */}
+        {video.status === 'done' && analysis && (() => {
+          const items = analysis.action_items ?? []
+          const orderMap = { '高': 0, '中': 1, '低': 2 }
+          
+          // 根據當前 role 過濾相關的 owner
+          const roleKeywords = {
+            exec:    ['主管', '總部', '老闆', '校長'],
+            manager: ['班主任', '主任', '教務', '教學主管'],
+            teacher: ['老師', '教師', '講師'],
+          }
+          const keywords = roleKeywords[role] ?? []
+          
+          const matchRole = (owner) => {
+            if (!owner) return false
+            return keywords.some(kw => owner.includes(kw))
+          }
+          
+          const filtered = items.filter(item => matchRole(item.owner))
+          // 如果篩不到任何該角色的事，顯示全部最高優先級的三件（fallback）
+          const pool = filtered.length > 0 ? filtered : items
+          const top3 = [...pool]
+            .sort((a, b) => (orderMap[a.priority] ?? 1) - (orderMap[b.priority] ?? 1))
+            .slice(0, 3)
+          
+          if (top3.length === 0) return null
+          
+          const roleLabel = { exec: '主管', manager: '班主任', teacher: '老師' }[role]
+          const isFiltered = filtered.length > 0
+
+          return (
+            <div className="panel" style={{
+              borderLeft: '4px solid var(--primary)',
+              background: 'linear-gradient(to right, #eff6ff 0%, transparent 70%)'
+            }}>
+              <div className="panel-header">
+                <div className="panel-title">
+                  <div className="panel-icon">🎯</div>
+                  {isFiltered
+                    ? `${roleLabel}：看完這支你要做的事`
+                    : '看完這支你要做的事（通用）'}
+                </div>
+              </div>
+              {top3.map((item, i) => (
+                <div key={i} style={{
+                  display: 'flex', gap: 12, alignItems: 'flex-start',
+                  padding: '10px 0',
+                  borderBottom: i < top3.length - 1 ? '1px solid var(--border)' : 'none'
+                }}>
+                  <div style={{
+                    width: 26, height: 26, borderRadius: '50%',
+                    background: 'var(--primary)', color: '#fff',
+                    fontSize: 13, fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0
+                  }}>{i + 1}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{item.task}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      👤 {item.owner ?? '—'}
+                      <span style={{ marginLeft: 8 }}>
+                        優先級：<span className={`priority-label ${item.priority ?? '中'}`} style={{
+                          padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 700,
+                          background: item.priority === '高' ? 'var(--error-light)' : item.priority === '低' ? 'var(--success-light)' : 'var(--warning-light)',
+                          color: item.priority === '高' ? 'var(--error)' : item.priority === '低' ? 'var(--success)' : 'var(--warning)',
+                        }}>{item.priority ?? '中'}</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
 
         {/* Status states */}
         {video.status === 'pending' && (
@@ -433,7 +608,14 @@ ${faq.map(f => `
               </div>
 
               {/* Tab panels */}
-              {tab === 'summary' && <TabSummary analysis={analysis} />}
+              {tab === 'summary' && (
+                <TabSummary
+                  analysis={analysis}
+                  video={video}
+                  onSeek={seekTo}
+                  formatSeconds={formatSeconds}
+                />
+              )}
               {tab === 'keypoints' && <TabKeyPoints analysis={analysis} />}
               {tab === 'actions' && (
                 <TabActions
@@ -567,8 +749,10 @@ ${faq.map(f => `
 
 // ── Tab sub-components ────────────────────────────────────
 
-function TabSummary({ analysis }) {
+function TabSummary({ analysis, video, onSeek, formatSeconds }) {
   const segments = analysis?.key_segments ?? []
+  const canSeek = (video.file_type === 'video' || video.file_type === 'audio')
+  
   return (
     <>
       <div className="panel">
@@ -583,7 +767,7 @@ function TabSummary({ analysis }) {
           </div>
           {segments.map((s, i) => (
             <div key={i} style={{ padding: '10px 0', borderBottom: i < segments.length - 1 ? '1px solid var(--border)' : 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
                 <span className={`badge ${s.importance === '高' ? 'badge-error' : s.importance === '中' ? 'badge-processing' : 'badge-done'}`}
                   style={s.importance === '高' ? { background: 'var(--error-light)', color: 'var(--error)' }
                        : s.importance === '中' ? { background: 'var(--warning-light)', color: 'var(--warning)' }
@@ -591,6 +775,24 @@ function TabSummary({ analysis }) {
                   {s.importance}
                 </span>
                 <span style={{ fontSize: 13.5, fontWeight: 600 }}>{s.title}</span>
+                {canSeek && typeof s.start_time === 'number' && (
+                  <button
+                    onClick={() => onSeek(s.start_time)}
+                    style={{
+                      marginLeft: 'auto',
+                      padding: '3px 10px',
+                      fontSize: 11,
+                      background: 'var(--primary-light, #dbeafe)',
+                      border: '1px solid var(--primary)',
+                      color: 'var(--primary)',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                  >
+                    ▶ 跳到 {formatSeconds(s.start_time)}
+                  </button>
+                )}
               </div>
               <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{s.content}</div>
             </div>

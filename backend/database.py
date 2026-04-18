@@ -44,6 +44,28 @@ def init_db():
             c.execute(f"ALTER TABLE videos ADD COLUMN {col} {definition}")
         except Exception:
             pass
+            # Migration: add transcript_segments column to analyses (for timestamped transcripts)
+    try:
+        c.execute("ALTER TABLE analyses ADD COLUMN transcript_segments TEXT")
+    except Exception:
+        pass
+    
+    # Migration: prepare for future user system (stays NULL for now)
+    for col, definition in [
+        ("uploader_user_id", "TEXT"),
+    ]:
+        try:
+            c.execute(f"ALTER TABLE videos ADD COLUMN {col} {definition}")
+        except Exception:
+            pass
+    try:
+        c.execute("ALTER TABLE views ADD COLUMN viewer_user_id TEXT")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE tasks ADD COLUMN assignee_user_id TEXT")
+    except Exception:
+        pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS analyses (
@@ -183,17 +205,18 @@ def delete_video(video_id: str):
 
 # ── Analyses ─────────────────────────────────────────────
 
-def save_analysis(video_id: str, analysis_id: str, transcript: str, data: Dict):
+def save_analysis(video_id: str, analysis_id: str, transcript: str, data: Dict, segments: list = None):
     conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("""
         INSERT OR REPLACE INTO analyses
-        (id, video_id, transcript, summary, key_points, action_items, faq,
+        (id, video_id, transcript, transcript_segments, summary, key_points, action_items, faq,
          key_segments, exec_summary, manager_summary, teacher_summary, topics, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         analysis_id, video_id, transcript,
+        json.dumps(segments, ensure_ascii=False) if segments else None,
         data.get("summary", ""),
         json.dumps(data.get("key_points", []), ensure_ascii=False),
         json.dumps(data.get("action_items", []), ensure_ascii=False),
@@ -217,7 +240,7 @@ def get_analysis(video_id: str) -> Optional[Dict]:
     if not row:
         return None
     d = dict(row)
-    for field in ["key_points", "action_items", "faq", "key_segments", "topics"]:
+    for field in ["key_points", "action_items", "faq", "key_segments", "topics", "transcript_segments"]:
         try:
             d[field] = json.loads(d[field]) if d[field] else []
         except Exception:

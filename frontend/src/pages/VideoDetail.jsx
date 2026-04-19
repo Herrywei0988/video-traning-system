@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../utils/api.js'
 import { useToast } from '../context/ToastContext.jsx'
+import { useAuth } from '../context/AuthContext.jsx'
 import { usePoll } from '../hooks/useApi.js'
 import Modal from '../components/Modal.jsx'
 import { StatusBadge, CategoryBadge, FileTypePill } from '../components/Badges.jsx'
@@ -21,6 +22,10 @@ export default function VideoDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const { effectiveContentRole, isRealAdmin, isViewingAs } = useAuth()
+
+  // 真 admin 且未預覽視角時，可自由切換三個版本當預覽工具；其他情境下切換器隱藏
+  const canSwitchRole = isRealAdmin && !isViewingAs
 
   const [video,    setVideo]    = useState(null)
   const [analysis, setAnalysis] = useState(null)
@@ -28,7 +33,13 @@ export default function VideoDetail() {
   const [views,    setViews]    = useState([])
   const [loading,  setLoading]  = useState(true)
   const [tab,      setTab]      = useState('summary')
-  const [role,     setRole]     = useState('exec')
+  const [role,     setRole]     = useState(effectiveContentRole)
+
+  // 視角變化時自動同步 role（登入身份或 admin 預覽切換時）
+  // admin 在「本人視角」下手動點 switcher 切換 role 會保留，直到下次視角變化才被覆蓋
+  useEffect(() => {
+    setRole(effectiveContentRole)
+  }, [effectiveContentRole])
 
   const mediaRef = useRef(null)
   const [mediaError, setMediaError] = useState(false)
@@ -357,9 +368,11 @@ const clearViews = async () => {
             <button className="btn btn-outline btn-sm" onClick={() => exportPDF(role)}>
               📄 匯出{role === 'exec' ? '主管版' : role === 'manager' ? '班主任版' : '老師版'}
             </button>
-            <button className="btn btn-outline btn-sm" onClick={() => exportPDF('full')}>
-              🗂 完整版
-            </button>
+            {canSwitchRole && (
+              <button className="btn btn-outline btn-sm" onClick={() => exportPDF('full')}>
+                🗂 完整版
+              </button>
+            )}
           </>
         )}
 
@@ -571,19 +584,21 @@ const clearViews = async () => {
         {video.status === 'done' && analysis && (
           <div className="content-grid">
             <div>
-              {/* Role switcher */}
-              <div className="role-switcher">
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: '32px', marginRight: 4 }}>角色視角：</div>
-                {ROLES.map(r => (
-                  <button
-                    key={r.key}
-                    className={`role-btn${role === r.key ? ` ${r.cls}` : ''}`}
-                    onClick={() => setRole(r.key)}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
+              {/* Role switcher — 只有真 admin 且未預覽視角時才能自由切換 */}
+              {canSwitchRole && (
+                <div className="role-switcher">
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: '32px', marginRight: 4 }}>角色視角：</div>
+                  {ROLES.map(r => (
+                    <button
+                      key={r.key}
+                      className={`role-btn${role === r.key ? ` ${r.cls}` : ''}`}
+                      onClick={() => setRole(r.key)}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Role summary */}
               <div className="panel">

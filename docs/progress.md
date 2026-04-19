@@ -1,7 +1,7 @@
 # 長頸鹿 AI 校園 - 影片培訓整理系統 · 專案進度
 
-> **最後更新**：2026/04/18（Sprint 3A 完成）
-> **專案階段**：Week 3 Sprint 3A 完成 · 準備開工 Sprint 3B
+> **最後更新**：2026/04/19（Week 3 Sprint 3A + 視角切換器完成）
+> **專案階段**：Week 3 進行中 · 準備開工 Sprint 3B
 > **目標**：把培訓影片從「看完就算」變成可追蹤、可搜尋、可累積、可收費的組織知識系統
 
 ---
@@ -11,8 +11,8 @@
 這份文件是**完整版規格書**，用於存在專案的 `docs/` 目錄做完整記錄。
 
 **三份文件的分工**：
-- **這份（progress.md）**：約 7000 字，完整規格、所有細節、設計決策歷史、技術債
-- **`handoff.md`**（精簡版）：約 1800 字，每次開新對話貼進去給新 Claude 接手用
+- **這份（progress.md）**：完整規格、所有細節、設計決策歷史、技術債
+- **`handoff.md`**（精簡版）：每次開新對話貼進去給新 Claude 接手用
 - **`README.md`**：門面，給外部人看，含 Roadmap 進度表格
 
 **更新時機**：
@@ -62,7 +62,7 @@
 **前端**：React + Vite + React Router + **JWT Auth**（SPA）
 **後端**：FastAPI + SQLite + **bcrypt + PyJWT**
 **AI**：OpenAI Whisper（語音轉文字）+ GPT-4o（結構化分析）
-**檔案儲存**：本機 `uploads/` 目錄
+**檔案儲存**：本機 `uploads/` 目錄（Week 8 前改方案）
 **部署環境**：WSL / Linux
 
 **專案結構**：
@@ -78,10 +78,12 @@ video-traning-system/
 ├── frontend/
 │   └── src/
 │       ├── pages/          # Dashboard, Upload, VideoDetail, Search, Login
-│       ├── components/     # Sidebar, VideoCard, Modal, Badges...
+│       ├── components/     # Sidebar, VideoCard, Modal, Badges, ViewAsBanner...
 │       ├── hooks/
-│       ├── context/        # ToastContext, AuthContext
+│       ├── context/        # ToastContext, AuthContext（含 effectiveRole）
 │       └── utils/          # api.js (含 JWT 自動帶入)
+├── docs/                   # progress.md, handoff.md
+├── scripts/                # backup.sh 等
 └── uploads/                # 原始檔案儲存
 ```
 
@@ -90,8 +92,8 @@ video-traning-system/
 - `analyses` — AI 分析結果（含 `transcript_segments` 時間戳資料）
 - `views` — 觀看紀錄（含預留欄位 `viewer_user_id`）
 - `tasks` — 追蹤任務（含預留欄位 `assignee_user_id`）
-- **`users`** — 使用者（email、password_hash、role、branch_id）
-- **`branches`** — 分校（含是否總部標記）
+- `users` — 使用者（email、password_hash、role、branch_id）
+- `branches` — 分校（含是否總部標記）
 
 ---
 
@@ -144,53 +146,81 @@ video-traning-system/
 - [x] PDF 匯出分角色：Topbar 兩顆按鈕（當前角色版 + 完整版）
 - [x] PPT/PDF/Word 類型顯示「文件已完成 AI 整理」提示條
 
-**驗收結果**：
-- ✅ 音檔嵌入播放器正常，時長顯示正確
-- ✅ AI 主題標籤精準
-- ✅ 本片行動清單根據角色切換會過濾
-- ✅ PPT 類型顯示「15 張投影片」提示
-- ✅ 段落跳轉實測通過
-- ✅ 分角色匯出 PDF 正常
-
 ---
 
 ### Week 3 Sprint 3A — 使用者系統後端 + 前端登入 ✅
 
 **完成日期**：2026/04/18
 **目標**：建立使用者系統地基，admin 可以登入、其他人看不到網站。
-**開發策略**：先讓最高權限（admin）能做所有事，之後 Sprint 3C 再疊分校隔離與角色擋權限。
 
 **Batch 1（後端 auth 地基）**：
 - [x] `requirements.txt` 加 `bcrypt`、`PyJWT`、`python-multipart`
 - [x] `.env` 加 `JWT_SECRET`、`JWT_EXPIRE_HOURS=24`
-- [x] `database.py` 建 `users` 表（id, email, password_hash, name, role, branch_id, is_active）
-- [x] `database.py` 建 `branches` 表（id, name, code, is_headquarters）
-- [x] `database.py` 加 users/branches 完整 CRUD 函式
-- [x] `database.py` 的 `public_user()` 移除 password_hash 再回傳
-- [x] 新建 `auth.py`：bcrypt 密碼 hash、JWT 產生/驗證、`get_current_user` dependency、`require_admin` dependency
+- [x] `database.py` 建 `users` / `branches` 表與 CRUD
+- [x] 新建 `auth.py`：bcrypt 密碼 hash、JWT 產生/驗證、dependencies
 - [x] 新建 `seed.py`：初始化 HQ 分校 + admin 帳號（`admin@giraffe.local` / `admin123456`）
-- [x] `app.py` 加 `POST /api/auth/login`（email+password → JWT）
-- [x] `app.py` 加 `GET /api/auth/me`（取得當前使用者）
-- [x] `app.py` 加 `POST /api/auth/logout`
-- [x] 所有原有 endpoint 加 `Depends(auth.get_current_user)` 保護
+- [x] `app.py` 加三個 auth endpoints，所有原有 endpoint 加 auth 保護
 - [x] `POST /api/videos/upload` 特別改用 `require_admin`
 
 **Batch 2（前端登入流程）**：
 - [x] 新建 `AuthContext.jsx`：管理 user/token/loading 狀態
-- [x] AuthContext 啟動時呼叫 `/api/auth/me` 驗證 token
-- [x] 新建 `Login.jsx`：藍色漸層背景、email+password 表單、錯誤訊息
+- [x] 新建 `Login.jsx`：藍色漸層背景、email+password 表單
 - [x] `utils/api.js` 重寫：每個請求自動帶 JWT、401 自動導回登入頁
 - [x] `App.jsx` 重寫：加 `<AuthProvider>`、`<ProtectedLayout>`、`/login` route
 - [x] `Sidebar.jsx` 重寫：左下角顯示使用者 + 角色 + 登出按鈕；admin-only 選單過濾
 
-**Sprint 3A 驗收結果**：
-- ✅ `python seed.py` 建立 HQ 分校 + admin 帳號
-- ✅ 無痕視窗開網站 → 自動導到 `/login`
-- ✅ 錯誤密碼 → 顯示「帳號或密碼錯誤」
-- ✅ 正確登入 → 跳到 Dashboard，看到全部資料
-- ✅ Sidebar 顯示「總部管理員」+「👑 管理員」+ 登出按鈕
-- ✅ curl 測試全通過：`/login` 回傳 JWT、`/me` 帶 token 回使用者、無 token 回 401、錯密碼回 401
-- ✅ 登出後 token 被清除
+**驗收通過**：登入/登出/錯誤密碼/token 過期全部驗證通過。
+
+---
+
+### Week 3 插隊任務 — UI 改版 + 視角切換器 ✅
+
+**完成日期**：2026/04/19
+**目標**：讓系統有品牌感，並讓 admin 可以預覽各角色視角，不需要真的建四個帳號登入登出。
+
+**UI 改版（品牌橘色）**：
+- [x] 修掉 Sidebar 因 CSS 衝突造成的排列 bug（選項變橫排、文字消失）
+- [x] Sidebar 改用 inline style，不再受 `.sidebar-nav` 全域 CSS 影響
+- [x] `index.css` 的 `:root` 區塊全站換色：`--primary` 由藍 `#2563eb` → 橘 `#f97316`
+- [x] 背景色由冷藍白 `#f0f4ff` → 暖米白 `#fffaf5`
+- [x] Sidebar 背景保留白色，active 狀態用淺橘底
+- [x] Shadow 光暈色調跟著換成橘色
+- [x] 狀態色（綠/黃/紅/青）不動，保持語意
+
+**視角切換器 Batch 1（操作面）**：
+- [x] `AuthContext.jsx` 新增三個 state：`viewAsRole` / `effectiveRole` / `effectiveContentRole`
+- [x] 新增 `ROLE_TO_CONTENT` 映射表：
+
+- admin → exec
+- principal → manager
+- teacher → teacher
+- staff → teacher
+
+- [x] `viewAsRole` 存在 sessionStorage（關 tab 歸零，避免忘記預覽模式）
+- [x] 新建 `ViewAsBanner.jsx`：頂部橘色 banner，提示當前視角+回到本人按鈕
+- [x] `App.jsx` 在 `.main` 最上方插入 `<ViewAsBanner />`
+- [x] `Sidebar.jsx` 重寫 avatar 區：點擊展開下拉選單（舊版是純顯示）
+- [x] 下拉選單結構：email → 視角切換列表（只有真 admin 可見）→ 登出
+- [x] 下拉選單的互動：點外部/ESC 關閉、當前視角打勾、本人標「（本人）」
+- [x] Sidebar 選單過濾改用 `effectiveRole`（預覽 teacher 時「上傳資料」會消失）
+
+**視角切換器 Batch 2（內容面）**：
+- [x] `VideoDetail.jsx` 引入 `useAuth`
+- [x] 定義 `canSwitchRole = isRealAdmin && !isViewingAs`
+- [x] `role` state 預設值改為 `effectiveContentRole`
+- [x] 加 `useEffect` 同步：`effectiveContentRole` 變化時自動 `setRole`
+- [x] Topbar「完整版」PDF 按鈕用 `canSwitchRole` 包條件（預覽視角下只剩角色版一顆）
+- [x] Role switcher（三個版本按鈕）用 `canSwitchRole` 包條件（預覽視角下整組消失）
+
+**驗收結果**：
+- ✅ Sidebar 樣式正常（選項垂直、文字完整顯示）
+- ✅ 全站主色正確變橘（按鈕、active、hover 都對）
+- ✅ admin 本人視角：三個版本切換器 + 兩顆 PDF 按鈕
+- ✅ admin 切換到班主任視角：頂部橘色 banner 出現、「上傳資料」消失、切換器消失、摘要變班主任版、PDF 只剩「匯出班主任版」
+- ✅ 切到老師/行政視角同樣正確（staff→teacher 映射驗證通過）
+- ✅ 「回到真實身份」按鈕所有 admin UI 正確回復
+- ✅ F5 刷新保留預覽狀態（sessionStorage）
+- ✅ 登出後重新登入，預覽狀態清除
 
 ---
 
@@ -223,14 +253,11 @@ video-traning-system/
 - [ ] `videos` 表加 `visibility` 欄位（public / internal / confidential）
 - [ ] `videos` 表加 `target_roles` 欄位（JSON array）
 - [ ] `Upload.jsx` 加 visibility 和 target_roles 欄位
-- [ ] API 層加權限檢查邏輯：
-  - admin 看全部
-  - principal 看同 branch 的 public + internal
-  - teacher 看同 branch 的 public
+- [ ] API 層加權限檢查邏輯：admin 看全部、principal 看同 branch 的 public+internal、teacher 看同 branch 的 public
 - [ ] Task assignee 改成下拉選單（從 users 表撈同 branch users）
-- [ ] `Dashboard.jsx` 加「我還沒看的」tab
-- [ ] `Dashboard.jsx` 加「指派給我的任務」tab
+- [ ] `Dashboard.jsx` 加「我還沒看的」/「指派給我的任務」tab
 - [ ] 建示範帳號：A 分校 1 principal + 2 teacher、B 分校 1 principal + 1 teacher
+- [ ] **VideoDetail 操作按鈕（編輯/刪除/新任務/重新分析）改用 `effectiveRole` guard**（Batch 2 故意沒做，3C 統一處理）
 
 **權限模型（最終確認）**：
 
@@ -245,6 +272,36 @@ video-traning-system/
 - `public`：家長溝通話術、教學示範、公共培訓
 - `internal`：主任級管理培訓、經營重點
 - `confidential`：加盟策略、內部數字、敏感培訓（總部 only）
+
+---
+
+### Week 3 Sprint 3D — 個人化 Schema（新增 · 2026/04/19 規劃）
+
+**時間估計**：約 1-2 天
+**插入位置**：Sprint 3C 之後、Week 4 之前
+**緣由**：原 Roadmap 只規劃了「使用者帳號」跟「觀看紀錄」，但漏了**使用者在系統裡會累積的東西**（筆記、書籤、續看進度、搜尋歷史）。沒有這層，系統對使用者來說還是「匿名查資料」而不是「自己的知識庫」。
+
+**新增表**：
+
+| 新表 | 欄位 | 用途 |
+|------|------|------|
+| `user_notes` | id, user_id, video_id, content, timestamp_sec, created_at, updated_at | 使用者在某支影片的私人筆記（可選附時間戳） |
+| `user_bookmarks` | id, user_id, video_id, start_time, note, created_at | 標記影片某段「這段重要」 |
+| `watch_progress` | user_id, video_id, last_position_sec, completed_at, updated_at | 續看用（PK: user_id + video_id） |
+| `search_history` | id, user_id, query, result_count, searched_at | Admin 儀表板要做「熱門搜尋詞」的資料源 |
+| `activity_log` | id, user_id, action, target_type, target_id, metadata, created_at | 審計 + debug + 使用率分析 |
+
+**前端任務**：
+- [ ] VideoDetail 右側加「我的筆記」面板（drawer 或 tab）
+- [ ] 影片段落旁邊加「🔖 加書籤」按鈕
+- [ ] Dashboard 加「繼續觀看」區塊（列出 watch_progress 未完成的）
+- [ ] `/api/search` 呼叫時寫 search_history
+- [ ] 所有寫入操作補寫 activity_log
+
+**驗收**：
+- 使用者重登入後仍看得到自己的筆記跟書籤
+- 關影片頁再打開能從上次位置繼續
+- Dashboard 正確顯示未看完的影片
 
 ---
 
@@ -271,7 +328,7 @@ video-traning-system/
 - [ ] 新增 `/admin` route（僅 admin）
 - [ ] 跨影片觀看率矩陣
 - [ ] 未完成任務清單
-- [ ] 熱門搜尋詞統計
+- [ ] 熱門搜尋詞統計（吃 Sprint 3D 的 search_history）
 - [ ] 異常提示：長期沒看、沒人看、任務逾期
 - [ ] 各分校使用率對比
 - [ ] 匯出管理報表
@@ -307,13 +364,14 @@ video-traning-system/
 
 ---
 
-### Week 8 — 安全性 + 打包（待開始）
+### Week 8 — 上線基建（擴充範疇 · 2026/04/19）
 
-**時間估計**：約 1 週
+**時間估計**：約 1 週（從原本「安全性 + 打包」擴充為完整基建）
 
+**原有項目**：
 - [ ] CORS 收斂
 - [ ] Rate limiting（`slowapi`）
-- [ ] Audit log 表
+- [ ] Audit log 表（已被 Sprint 3D 的 activity_log 覆蓋）
 - [ ] Upload streaming write
 - [ ] Production .env 模板
 - [ ] JWT 改用 httpOnly cookie
@@ -324,6 +382,13 @@ video-traning-system/
 - [ ] 後端統一 error handler
 - [ ] 部署文件（Dockerfile、docker-compose、nginx）
 - [ ] 資料庫從 SQLite 升級 PostgreSQL
+
+**新增項目（架構洞察）**：
+- [ ] **檔案儲存遷移**：本機 `uploads/` → 物件儲存（S3 / MinIO / Cloudflare R2 擇一）或外接掛載磁碟
+- [ ] **自動備份機制**（正式版）：Postgres pg_dump 每日 + 檔案目錄 rsync 異地
+- [ ] **資料保留政策**：刪除影片時相關 notes/bookmarks/views 怎麼處理（CASCADE vs SET NULL）
+- [ ] **資料匯出功能**：給分校「退租」時能帶走自己 branch 的資料（JSON 匯出）
+- [ ] **分校資料隔離從應用層強制到 DB 層**（Row Level Security 或每查詢強制 `WHERE branch_id = ?`）
 
 ---
 
@@ -355,25 +420,41 @@ video-traning-system/
 | 2026/04/18 | **只有總部能上傳，分校只能看** | Netflix 模式、品牌一致 |
 | 2026/04/18 | **分校看得到影片播放 + AI 分析，只能匯出 PDF** | 付費看使用權，不能帶走所有權 |
 | 2026/04/18 | **Sprint 3A 先開 admin 全權限，Sprint 3C 再擋** | 先做「有權限情境」再做「擋權限情境」 |
+| 2026/04/19 | **主色改為長頸鹿橘 `#f97316`**（Tailwind orange-500） | 品牌一致性；原藍色是 Template 預設 |
+| 2026/04/19 | **狀態色不換，仍綠/黃/紅/青** | 語意色跟品牌色職責不同，混用會亂 |
+| 2026/04/19 | **做 `effectiveRole` 抽象，所有 UI 過濾吃這個不吃 `user.role`** | 支援 admin 預覽模式；未來 3C 做完仍然是正確抽象 |
+| 2026/04/19 | **`viewAsRole` 存 sessionStorage 而非 localStorage** | 關 tab 歸零，避免使用者忘記自己在預覽模式 |
+| 2026/04/19 | **User role ↔ Content role 映射：staff → teacher** | 最終權限表中 staff 跟 teacher 可見權限完全相同，內容也該一致 |
+| 2026/04/19 | **只有真 admin 看得到視角切換器** | teacher 不能切成 admin 看自己不該看的；安全性考量 |
+| 2026/04/19 | **VideoDetail 操作按鈕（編輯/刪除等）不做 effectiveRole 擋** | 屬於寫入權限，3C 會統一處理；Batch 2 不重複做 |
+| 2026/04/19 | **新增 Sprint 3D 個人化 Schema** | 原 Roadmap 漏了使用者個人累積資料；不做會讓系統感覺「匿名查資料」 |
+| 2026/04/19 | **Week 8 擴充為「上線基建」範疇** | 原 Roadmap 對檔案儲存、備份策略、資料隔離著墨不足 |
 
 ---
 
 ## ⚠️ 已知問題 / 技術債
 
-- [ ] **CORS 全開** `allow_origins=["*"]`（Week 8 修）
-- [ ] **JWT 存 localStorage 有 XSS 風險**（Week 8 升級 httpOnly cookie）
-- [ ] **JWT 24 小時過期太長**（Week 8 改 1-2 小時 + refresh token）
-- [ ] **seed.py 密碼寫死預設值**（Week 8 強制環境變數）
-- [ ] **沒有密碼強度檢查**（Week 8）
-- [ ] **沒有 rate limit**，登入 API 可以被 brute force（Week 8）
-- [ ] **Upload 整個檔案進 memory**，大檔會 OOM（Week 8）
+**高優先（會影響未來功能）**：
+- [ ] **VideoDetail.jsx 太長**（920+ 行），3D/3C 時拆檔
+- [ ] **VideoDetail 操作按鈕未依 effectiveRole 擋**（Sprint 3C 處理）
 - [ ] **uploads/ 目錄沒存取控制**（Sprint 3C/Week 8）
-- [ ] **VideoDetail.jsx 太長**（720+ 行），之後拆檔
-- [ ] **沒有 audit log**（Week 8）
-- [ ] **手機 RWD 沒測**（Week 7）
+- [ ] **分校資料隔離靠應用層不靠 DB 層**（Week 8 擴充）
+
+**中優先（Week 8 前解決）**：
+- [ ] **CORS 全開** `allow_origins=["*"]`
+- [ ] **JWT 存 localStorage 有 XSS 風險**（升級 httpOnly cookie）
+- [ ] **JWT 24 小時過期太長**（改 1-2 小時 + refresh token）
+- [ ] **seed.py 密碼寫死預設值**（強制環境變數）
+- [ ] **沒有密碼強度檢查**
+- [ ] **沒有 rate limit**，登入 API 可以被 brute force
+- [ ] **Upload 整個檔案進 memory**，大檔會 OOM
+- [ ] **SQLite 多租戶限制**，上線前要換 PostgreSQL
+
+**低優先（體驗改善）**：
+- [ ] **PDF 輸出的內嵌 CSS 仍是舊藍色 `#3b82f6`**（品牌統一時順手改 VideoDetail.jsx L218-220）
 - [ ] **沒有 error boundary**（Week 8）
-- [ ] **SQLite 多租戶限制**，上線前要換 PostgreSQL（Week 8）
 - [ ] **沒有忘記密碼功能**（Week 5 admin 儀表板做）
+- [ ] **手機 RWD 沒測**（Week 7）
 
 ---
 
@@ -389,11 +470,18 @@ video-traning-system/
 - git commit 用多行建議 `git commit` 打開編輯器貼（避免引號問題）
 
 ### 互動的節奏
-1. 先確認方向（1-3 個問題，用 `ask_user_input_v0`）
+1. 先確認方向（1-3 個問題）
 2. 給具體 patch（檔案名 + 行號 + 完整 code）
 3. 給測試方法（怎麼跑、看什麼結果算成功）
 4. 等他回報，成功就往下、卡住就 debug
 5. 不要一次丟太多，Sprint 可以拆 Batch
+
+### 會冒出的架構性問題
+這個使用者會問「對的問題」——例如資料存哪、使用者怎麼累積、壞了怎麼辦。遇到這類問題：
+- **認真對待**，不要打哈哈
+- **先回答「我有沒有規劃這個」**，承認漏掉的地方
+- 把洞察**寫進 Roadmap** 當作新 Sprint，不要塞進「延伸功能」打發掉
+- 正因為他會問，所以 progress.md 裡才會有「Sprint 3D」「Week 8 擴充」這些後加的區塊
 
 ### 踩過的雷 / 使用者環境特性
 - WSL（Windows 底下的 Ubuntu），ffmpeg 用 apt 裝

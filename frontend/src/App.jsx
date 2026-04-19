@@ -7,6 +7,7 @@ import Upload from './pages/Upload.jsx'
 import VideoDetail from './pages/VideoDetail.jsx'
 import Search from './pages/Search.jsx'
 import Login from './pages/Login.jsx'
+import ViewAsBanner from './components/ViewAsBanner.jsx'
 
 function ProtectedLayout({ children }) {
   const { user, loading } = useAuth()
@@ -31,12 +32,15 @@ function ProtectedLayout({ children }) {
   }
 
   return (
-    <div className="layout">
-      <Sidebar />
-      <div className="main">{children}</div>
-      <ToastContainer />
+  <div className="layout">
+    <Sidebar />
+    <div className="main">
+      <ViewAsBanner />
+      {children}
     </div>
-  )
+    <ToastContainer />
+  </div>
+)
 }
 
 export default function App() {

@@ -25,3 +25,5 @@ backend/uploads/*
 # System files
 *.Zone.Identifier
 .DS_Store
+
+backups/

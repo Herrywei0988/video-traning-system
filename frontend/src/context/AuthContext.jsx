@@ -4,6 +4,15 @@ const AuthContext = createContext(null)
 
 const TOKEN_KEY = 'giraffe_token'
 const USER_KEY = 'giraffe_user'
+const VIEW_AS_KEY = 'giraffe_view_as'
+
+// User role → VideoDetail 內容版本 (exec/manager/teacher) 映射
+export const ROLE_TO_CONTENT = {
+  admin: 'exec',
+  principal: 'manager',
+  teacher: 'teacher',
+  staff: 'teacher',
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
@@ -17,7 +26,24 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
   const [loading, setLoading] = useState(true)
 
-  // On mount, verify token is still valid by calling /api/auth/me
+  // viewAsRole: admin 預覽用，存 sessionStorage（tab 關了就失效）
+  const [viewAsRole, setViewAsRoleState] = useState(() => {
+    try {
+      return sessionStorage.getItem(VIEW_AS_KEY) || null
+    } catch {
+      return null
+    }
+  })
+
+  const setViewAsRole = useCallback((role) => {
+    setViewAsRoleState(role)
+    try {
+      if (role) sessionStorage.setItem(VIEW_AS_KEY, role)
+      else sessionStorage.removeItem(VIEW_AS_KEY)
+    } catch {}
+  }, [])
+
+  // On mount, verify token
   useEffect(() => {
     async function verify() {
       if (!token) {
@@ -33,14 +59,13 @@ export function AuthProvider({ children }) {
           setUser(data.user)
           localStorage.setItem(USER_KEY, JSON.stringify(data.user))
         } else {
-          // Token invalid/expired — clear
           setToken(null)
           setUser(null)
           localStorage.removeItem(TOKEN_KEY)
           localStorage.removeItem(USER_KEY)
         }
       } catch {
-        // Network error — keep cached user but mark as unverified; UI still works
+        // Network error — keep cached user
       } finally {
         setLoading(false)
       }
@@ -63,28 +88,49 @@ export function AuthProvider({ children }) {
     setUser(data.user)
     localStorage.setItem(TOKEN_KEY, data.token)
     localStorage.setItem(USER_KEY, JSON.stringify(data.user))
+    // 新登入清掉預覽視角，避免跨帳號殘留
+    setViewAsRole(null)
     return data.user
-  }, [])
+  }, [setViewAsRole])
 
   const logout = useCallback(() => {
     setToken(null)
     setUser(null)
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(USER_KEY)
-    // Fire-and-forget server logout (not required but clean)
+    setViewAsRole(null)
     if (token) {
       fetch('/api/auth/logout', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {})
     }
-  }, [token])
+  }, [token, setViewAsRole])
 
-  const isAdmin = user?.role === 'admin'
-  const isPrincipal = user?.role === 'principal'
+  // ── Derived values ──
+  const realRole = user?.role || null
+  const isRealAdmin = realRole === 'admin'
+
+  // effectiveRole: 所有 UI 過濾都該用這個（不是 user.role）
+  const effectiveRole = viewAsRole || realRole
+  const effectiveContentRole = ROLE_TO_CONTENT[effectiveRole] || 'teacher'
+  const isViewingAs = !!viewAsRole && viewAsRole !== realRole
+
+  const isAdmin = effectiveRole === 'admin'
+  const isPrincipal = effectiveRole === 'principal'
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading, isAdmin, isPrincipal }}>
+    <AuthContext.Provider
+      value={{
+        user, token, login, logout, loading,
+        // 原有
+        isAdmin, isPrincipal,
+        // 新增
+        realRole, isRealAdmin,
+        effectiveRole, effectiveContentRole,
+        viewAsRole, setViewAsRole, isViewingAs,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

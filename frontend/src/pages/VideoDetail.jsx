@@ -6,6 +6,8 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { usePoll } from '../hooks/useApi.js'
 import Modal from '../components/Modal.jsx'
 import { StatusBadge, CategoryBadge, FileTypePill } from '../components/Badges.jsx'
+import NotesPanel from '../components/NotesPanel.jsx'
+import BookmarksPanel from '../components/BookmarksPanel.jsx'
 import {
   CATEGORIES, CATEGORY_COLORS, getFileTypeMeta,
   formatDate, formatDuration, formatFileSize
@@ -44,6 +46,14 @@ export default function VideoDetail() {
   const mediaRef = useRef(null)
   const [mediaError, setMediaError] = useState(false)
   const [streamToken, setStreamToken] = useState(null)
+  const [downloading, setDownloading] = useState(false)
+
+  // Sprint 3D: 續看進度
+  const [savedPosition, setSavedPosition] = useState(null)
+  const [progressApplied, setProgressApplied] = useState(false)
+  const lastSavedPositionRef = useRef(0)
+  const [currentTime, setCurrentTime] = useState(0)  // 給 NotesPanel 綁時間戳用
+  const [bookmarkRefresh, setBookmarkRefresh] = useState(0)  // 加書籤後強制 panel 重載
 
   // Modals
   const [editOpen,     setEditOpen]     = useState(false)
@@ -112,6 +122,116 @@ export default function VideoDetail() {
       .catch(() => { /* 失敗就會 fallback 到 mediaError */ })
     return () => { cancelled = true }
   }, [id, video?.status, video?.file_type])
+
+  // Sprint 3D: 載入上次的續看進度
+  useEffect(() => {
+    if (!video || video.status !== 'done') return
+    if (video.file_type !== 'video' && video.file_type !== 'audio') return
+    let cancelled = false
+    api.get(`/api/videos/${id}/progress`)
+      .then(res => {
+        if (cancelled) return
+        const p = res.progress
+        // 有記錄、未完成、且位置 > 5 秒才值得 seek 回來（太早的位置沒意義）
+        if (p && !p.completed_at && p.last_position_sec > 5) {
+          setSavedPosition(p.last_position_sec)
+        }
+      })
+      .catch(() => { /* 失敗就當沒進度 */ })
+    return () => { cancelled = true }
+  }, [id, video?.status, video?.file_type])
+
+  // Sprint 3D: streamToken 就緒 + 有舊進度時，自動 seek 回去（只做一次）
+  useEffect(() => {
+    if (!streamToken || progressApplied || savedPosition === null) return
+    if (!mediaRef.current) return
+    // 延遲一下等 <video>/<audio> 的 metadata 載入完
+    const el = mediaRef.current
+    const doSeek = () => {
+      try {
+        el.currentTime = savedPosition
+        lastSavedPositionRef.current = savedPosition
+        setProgressApplied(true)
+        showToast(`已從 ${formatSeconds(savedPosition)} 繼續播放`, 'success')
+      } catch { /* 忽略 */ }
+    }
+    if (el.readyState >= 1) {
+      doSeek()
+    } else {
+      el.addEventListener('loadedmetadata', doSeek, { once: true })
+      return () => el.removeEventListener('loadedmetadata', doSeek)
+    }
+  }, [streamToken, savedPosition, progressApplied, showToast])
+
+  // Sprint 3D: 每 10 秒存一次進度 + 看完自動標記 + 關頁面補一次
+  useEffect(() => {
+    if (!video || video.status !== 'done') return
+    if (video.file_type !== 'video' && video.file_type !== 'audio') return
+    const el = mediaRef.current
+    if (!el) return
+
+    const savePosition = (completed = false) => {
+      const pos = el.currentTime
+      // 位置變化 < 3 秒就跳過（避免暫停時無謂的呼叫）
+      if (!completed && Math.abs(pos - lastSavedPositionRef.current) < 3) return
+      lastSavedPositionRef.current = pos
+      // 用 fetch 不用 api wrapper 是因為我們希望 unload 時也能送（navigator.sendBeacon 備援）
+      const body = JSON.stringify({ last_position_sec: pos, completed })
+      const token = localStorage.getItem('giraffe_token')
+      // 正常情境用 fetch
+      fetch(`/api/videos/${id}/progress`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body,
+        keepalive: true,  // 讓 unload 也能送出
+      }).catch(() => {})
+    }
+
+    // 10 秒定時
+    const intervalId = setInterval(() => {
+      if (!el.paused) savePosition(false)
+    }, 10000)
+
+    // 暫停時補存
+    const onPause = () => savePosition(false)
+    // 播完自動標完成
+    const onEnded = () => savePosition(true)
+    // 關頁面補存
+    const onBeforeUnload = () => savePosition(false)
+
+    el.addEventListener('pause', onPause)
+    el.addEventListener('ended', onEnded)
+    window.addEventListener('beforeunload', onBeforeUnload)
+
+    return () => {
+      clearInterval(intervalId)
+      el.removeEventListener('pause', onPause)
+      el.removeEventListener('ended', onEnded)
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      // 卸載 component 時也存一次（切到別頁之類）
+      savePosition(false)
+    }
+  }, [id, video?.status, video?.file_type, streamToken])
+
+  // Sprint 3D: 追蹤目前播放時間（給 NotesPanel 綁時間戳用），每秒更新 1 次避免太頻繁
+  useEffect(() => {
+    if (!video || (video.file_type !== 'video' && video.file_type !== 'audio')) return
+    const el = mediaRef.current
+    if (!el) return
+    let lastUpdate = 0
+    const onTimeUpdate = () => {
+      const now = Date.now()
+      if (now - lastUpdate > 1000) {
+        setCurrentTime(el.currentTime)
+        lastUpdate = now
+      }
+    }
+    el.addEventListener('timeupdate', onTimeUpdate)
+    return () => el.removeEventListener('timeupdate', onTimeUpdate)
+  }, [video?.file_type, streamToken])
 
   // Poll when processing
   usePoll(id, video?.status, async (updated) => {
@@ -209,10 +329,59 @@ const clearViews = async () => {
     } catch (e) { showToast(e.message, 'error') }
   }
 
+  // 下載原檔（僅 admin;Netflix 模式下分校看不到這個按鈕）
+  // 不用 api wrapper 因為它只處理 JSON,這裡要拿 binary blob
+  const downloadOriginal = async () => {
+    if (downloading) return
+    setDownloading(true)
+    try {
+      const token = localStorage.getItem('giraffe_token')
+      const res = await fetch(`/api/videos/${id}/download`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (!res.ok) {
+        if (res.status === 403) throw new Error('沒有下載權限')
+        if (res.status === 404) throw new Error('找不到原始檔案')
+        throw new Error(`下載失敗（HTTP ${res.status}）`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = video.filename || `${video.title}.bin`
+      document.body.appendChild(a)
+      a.click()
+      // 延遲清理確保下載已啟動
+      setTimeout(() => {
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }, 100)
+      showToast('開始下載', 'success')
+    } catch (e) {
+      showToast(e.message, 'error')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   const copyContent = () => {
     navigator.clipboard.writeText(analysis?.transcript ?? '').then(() =>
       showToast('已複製到剪貼板', 'success')
     )
+  }
+
+  // Sprint 3D: 關鍵段落快速加書籤
+  const handleQuickBookmark = async (startTime, title) => {
+    try {
+      await api.post(`/api/videos/${id}/bookmarks`, {
+        start_time: startTime,
+        note: title || '',
+      })
+      showToast(`已加書籤：${title || formatSeconds(startTime)}`, 'success')
+      setBookmarkRefresh(prev => prev + 1)  // 通知 BookmarksPanel 重載
+    } catch (e) {
+      showToast(e.message, 'error')
+    }
   }
 
   const exportPDF = (mode = 'full') => {
@@ -391,6 +560,18 @@ const clearViews = async () => {
               </button>
             )}
           </>
+        )}
+
+        {/* 下載原檔:跟完整版 PDF 一樣只給真 admin 看,預覽模式下會隱藏 */}
+        {canSwitchRole && (
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={downloadOriginal}
+            disabled={downloading}
+            title="下載原始檔案（僅總部管理員）"
+          >
+            {downloading ? '下載中...' : '⬇️ 下載原檔'}
+          </button>
         )}
 
         <button className="btn btn-outline btn-sm" onClick={() => setEditOpen(true)}>✏️ 編輯</button>
@@ -642,14 +823,7 @@ const clearViews = async () => {
               </div>
 
               {/* Tab panels */}
-              {tab === 'summary' && (
-                <TabSummary
-                  analysis={analysis}
-                  video={video}
-                  onSeek={seekTo}
-                  formatSeconds={formatSeconds}
-                />
-              )}
+              {tab === 'summary'   && <TabSummary analysis={analysis} video={video} onSeek={seekTo} formatSeconds={formatSeconds} onQuickBookmark={handleQuickBookmark} />}
               {tab === 'keypoints' && <TabKeyPoints analysis={analysis} />}
               {tab === 'actions' && (
                 <TabActions
@@ -664,8 +838,26 @@ const clearViews = async () => {
               {tab === 'content' && <TabContent analysis={analysis} video={video} onCopy={copyContent} />}
             </div>
 
-            {/* Sidebar: views */}
-            <div>
+            {/* Sidebar: notes + bookmarks + views */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* 我的筆記（Sprint 3D） */}
+              <NotesPanel
+                videoId={id}
+                currentTime={currentTime}
+                canSeek={video.file_type === 'video' || video.file_type === 'audio'}
+                onSeek={seekTo}
+              />
+
+              {/* 我的書籤（Sprint 3D）— 文件/PPT 會自己回傳 null 不顯示 */}
+              <BookmarksPanel
+                videoId={id}
+                currentTime={currentTime}
+                canSeek={video.file_type === 'video' || video.file_type === 'audio'}
+                onSeek={seekTo}
+                refreshToken={bookmarkRefresh}
+              />
+
+              {/* 觀看紀錄 */}
               <div className="panel">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                   <div className="panel-title">
@@ -796,7 +988,7 @@ const clearViews = async () => {
 
 // ── Tab sub-components ────────────────────────────────────
 
-function TabSummary({ analysis, video, onSeek, formatSeconds }) {
+function TabSummary({ analysis, video, onSeek, formatSeconds, onQuickBookmark }) {
   const segments = analysis?.key_segments ?? []
   const canSeek = (video.file_type === 'video' || video.file_type === 'audio')
   
@@ -823,22 +1015,39 @@ function TabSummary({ analysis, video, onSeek, formatSeconds }) {
                 </span>
                 <span style={{ fontSize: 13.5, fontWeight: 600 }}>{s.title}</span>
                 {canSeek && typeof s.start_time === 'number' && (
-                  <button
-                    onClick={() => onSeek(s.start_time)}
-                    style={{
-                      marginLeft: 'auto',
-                      padding: '3px 10px',
-                      fontSize: 11,
-                      background: 'var(--primary-light, #dbeafe)',
-                      border: '1px solid var(--primary)',
-                      color: 'var(--primary)',
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                      fontWeight: 600,
-                    }}
-                  >
-                    ▶ 跳到 {formatSeconds(s.start_time)}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => onSeek(s.start_time)}
+                      style={{
+                        marginLeft: 'auto',
+                        padding: '3px 10px',
+                        fontSize: 11,
+                        background: 'var(--primary-light, #dbeafe)',
+                        border: '1px solid var(--primary)',
+                        color: 'var(--primary)',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
+                    >
+                      ▶ 跳到 {formatSeconds(s.start_time)}
+                    </button>
+                    <button
+                      onClick={() => onQuickBookmark && onQuickBookmark(s.start_time, s.title)}
+                      title={`加書籤：${s.title}`}
+                      style={{
+                        padding: '3px 8px',
+                        fontSize: 11,
+                        background: 'transparent',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text-secondary)',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      🔖
+                    </button>
+                  </>
                 )}
               </div>
               <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{s.content}</div>

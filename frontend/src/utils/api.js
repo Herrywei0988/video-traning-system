@@ -48,9 +48,12 @@ export const api = {
       body: JSON.stringify(body),
     }).then(handle),
 
-  delete: (url) =>
+  delete: (url, body) =>
     fetch(url, {
       method: 'DELETE',
-      headers: getHeaders(),
+      headers: body
+        ? getHeaders({ 'Content-Type': 'application/json' })
+        : getHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
     }).then(handle),
 }

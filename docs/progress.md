@@ -1,7 +1,7 @@
 # 長頸鹿 AI 校園 - 影片培訓整理系統 · 專案進度
 
-> **最後更新**：2026/04/19（Sprint 3B + 3C Phase 1-3 + Visibility UI 完成）
-> **專案階段**：Week 3 進行中 · Sprint 3C 接近完成（剩 Phase 4 stream/download 分流）
+> **最後更新**：2026/04/20（Sprint 3C Phase 4 + Sprint 3D Phase 1/2/3 全部完成）
+> **專案階段**：Week 3 收尾中 · Sprint 3D 圓滿結束,下一步 Sprint 3E(AI 小測驗)
 > **目標**：把培訓影片從「看完就算」變成可追蹤、可搜尋、可累積、可收費的組織知識系統
 
 ---
@@ -13,7 +13,7 @@
 **三份文件的分工**：
 - **這份（progress.md）**：完整規格、所有細節、設計決策歷史、技術債
 - **`handoff.md`**（精簡版）：每次開新對話貼進去給新 Claude 接手用
-- **`README.md`**：門面，給外部人看，含 Roadmap 進度表格
+- **`README.md`**：門面,給外部人看,含 Roadmap 進度表格
 
 **更新時機**：
 - 每週 Sprint 結束 → 更新三份
@@ -57,6 +57,8 @@
 **分校可以做什麼**：
 - ✅ 看 AI 分析結果（摘要、重點、FAQ、待辦）
 - ✅ 在網頁內播放影片/音檔（串流）
+- ✅ **寫個人筆記、加書籤、續看進度**（Sprint 3D 新增）
+- ✅ **看個人搜尋歷史 + 快速重搜**（Sprint 3D 新增）
 - ✅ 未來看 PPT/文件內容（Week 7 轉圖預覽）
 - ✅ 下載 PDF 分析報告
 - ✅ 做 AI 小測驗驗收學習成效（Sprint 3E 新增）
@@ -68,22 +70,24 @@
 - ✅ 下載任何原檔
 - ✅ 上傳新內容
 - ✅ 管理使用者與分校
-- ✅ 設定影片可見度（`public` / `internal` / `confidential`），即時控制分校看到什麼
+- ✅ 設定影片可見度（`public` / `internal` / `confidential`）,即時控制分校看到什麼
 
-**Netflix 模式 vs iTunes 模式**：這是 Netflix 模式——付費看，不能帶走檔案。分校買的是「內容使用權 + AI 整理服務」，不是「檔案所有權」。
+**Netflix 模式 vs iTunes 模式**：這是 Netflix 模式——付費看,不能帶走檔案。分校買的是「內容使用權 + AI 整理服務」,不是「檔案所有權」。
 
 ---
 
 ## 🎯 核心價值主張（四個支柱 · 2026/04/19 擴充）
 
-這個系統不只是「影片資料庫」或「AI 摘要工具」，而是**完整的培訓成效管理平台**：
+這個系統不只是「影片資料庫」或「AI 摘要工具」,而是**完整的培訓成效管理平台**：
 
 1. **線上看原檔**：分校登入後能串流播放影片、瀏覽 PPT（不能下載）
 2. **AI 分析摘要**：依角色顯示不同版本（exec / manager / teacher）
-3. **小測驗驗收**（Sprint 3E 新增）：AI 從影片生成題目，分校可看到旗下老師測驗成績
+3. **小測驗驗收**（Sprint 3E 新增）：AI 從影片生成題目,分校可看到旗下老師測驗成績
 4. **可匯出 PDF**：線下分享、歸檔用
 
-少了任何一個支柱，產品價值都會大打折扣。特別是「小測驗」讓「看完影片」升級成「證明學會了」，這是真正的差異化。
+少了任何一個支柱,產品價值都會大打折扣。特別是「小測驗」讓「看完影片」升級成「證明學會了」,這是真正的差異化。
+
+**使用者體驗層（Sprint 3D 補完）**:系統要讓使用者累積個人知識,不是每次來都像第一次。筆記、書籤、續看進度、搜尋歷史這四件事,讓「匿名查資料」變成「自己的知識庫」。
 
 ---
 
@@ -102,6 +106,7 @@ video-traning-system/
 │   ├── app.py              # FastAPI 入口、API endpoints、auth 保護
 │   ├── ai_service.py       # Whisper + GPT-4o 處理
 │   ├── database.py         # SQLite CRUD（含 users、branches、can_view_video helper）
+│   │                       # + Sprint 3D:notes/bookmarks/progress/search_history/activity_log
 │   ├── auth.py             # Password hash + JWT + stream token
 │   ├── seed.py             # 初始化 admin 帳號
 │   ├── seed_3c.py          # 建測試用台北分校 + teacher 帳號（Sprint 3C）
@@ -110,10 +115,11 @@ video-traning-system/
 ├── frontend/
 │   └── src/
 │       ├── pages/          # Dashboard, Upload, VideoDetail, Search, Login
-│       ├── components/     # Sidebar, VideoCard, Modal, Badges, ViewAsBanner...
+│       ├── components/     # Sidebar, VideoCard, Modal, Badges, ViewAsBanner
+│       │                   # + Sprint 3D:NotesPanel, BookmarksPanel
 │       ├── hooks/
 │       ├── context/        # ToastContext, AuthContext（含 effectiveRole）
-│       └── utils/          # api.js (含 JWT 自動帶入)
+│       └── utils/          # api.js (含 JWT 自動帶入 + Sprint 3D:DELETE 支援 body)
 ├── docs/                   # progress.md, handoff.md
 ├── scripts/                # backup.sh 等
 └── uploads/                # 原始檔案儲存
@@ -126,8 +132,15 @@ video-traning-system/
 - `tasks` — 追蹤任務（含 `assignee_user_id` FK）
 - `users` — 使用者（email、password_hash、role、branch_id）
 - `branches` — 分校（含 `is_headquarters`、`subscription_status`）
+- **`user_notes`** — 個人筆記(Sprint 3D;可選綁 timestamp_sec)
+- **`user_bookmarks`** — 個人書籤(Sprint 3D;必綁 start_time)
+- **`watch_progress`** — 續看進度(Sprint 3D;composite PK user_id+video_id)
+- **`search_history`** — 搜尋歷史(Sprint 3D;支援個人歷史 + admin 熱門詞)
+- **`activity_log`** — 行為日誌(Sprint 3D;所有重要事件的 audit trail)
 
 **資料庫檔名**：`backend/training.db`（不是 app.db,舊 handoff 寫錯了）
+
+⚠️ **注意**：DB_PATH 目前是相對路徑 `"training.db"`,必須在 `backend/` 目錄執行才找得到。在其他目錄跑 `python -c "sqlite3.connect('training.db')"` SQLite 會**靜默建立空 DB**,容易誤判「資料沒了」。Week 8 要改絕對路徑。
 
 ---
 
@@ -171,7 +184,7 @@ video-traning-system/
 **具體完成項目**：
 - [x] `/api/videos/{video_id}/file` 串流 endpoint（支援 HTTP Range headers）
 - [x] `CONTENT_TYPES` 對應表（影片/音檔 MIME type）
-- [x] `_is_refusal()` 函式，偵測 AI 拒絕並轉成友善錯誤訊息
+- [x] `_is_refusal()` 函式,偵測 AI 拒絕並轉成友善錯誤訊息
 - [x] `VideoDetail.jsx` 嵌入 HTML5 `<video>` / `<audio>` 播放器
 - [x] `mediaRef`、`seekTo()`、`formatSeconds()` helper
 - [x] 關鍵段落加「▶ 跳到 XX:XX」按鈕,可點擊跳轉（**實測通過**）
@@ -358,53 +371,160 @@ video-traning-system/
 
 ---
 
-## 🚧 待完成
+### Week 3 Sprint 3C Phase 4 — stream/download 分流 ✅
 
-### Week 3 Sprint 3C Phase 4 — stream/download 分流（未做,約 30 分鐘）
+**完成日期**：2026/04/20
+**目標**：讓「線上看」跟「下載原檔」是兩個獨立端點,明確區分權限。分校只能線上看、admin 才能下載。
 
-**目標**：讓「線上看」跟「下載原檔」是兩個獨立端點,明確區分權限。
+**後端**：
+- [x] 新增 `GET /api/videos/{video_id}/download`,用 `Depends(auth.require_admin)` 擋非 admin
+- [x] 用 FastAPI `FileResponse(filename=...)` 自動設 `Content-Disposition: attachment` + 處理 RFC 5987 中文檔名編碼
+- [x] `media_type="application/octet-stream"` 強制瀏覽器下載而非內嵌開啟
+- [x] 檔名回填原始 filename（不是 uuid.xxx）
+- [x] 現有 `/file` endpoint 保留,所有登入者用 stream token 線上看
 
-- [ ] 新增 `GET /api/videos/{id}/download`（帶 Authorization header,不用 stream_token）
-- [ ] 加 `Depends(auth.require_admin)`（目前只有 admin 能下載）
-- [ ] 回傳時加 `Content-Disposition: attachment` header 強制瀏覽器下載
-- [ ] 前端在 admin 登入時,VideoDetail topbar 加「⬇️ 下載原檔」按鈕
-- [ ] 按鈕邏輯：`window.location.href = /api/videos/${id}/download?token=${localStorage.getItem('giraffe_token')}`
-  （或改成用 fetch blob 再 save,更安全但複雜）
-- [ ] 現有 `/file` 端點保持不變（所有登入者用 stream token 線上看）
+**前端**：
+- [x] `VideoDetail.jsx` topbar 加「⬇️ 下載原檔」按鈕（放在「🗂 完整版」跟「✏️ 編輯」之間）
+- [x] 用 fetch blob 而非 `window.location.href`(後者會把 JWT 塞進 URL,洩漏到 browser history/server log)
+- [x] 流程:`fetch` 拿 blob → `URL.createObjectURL()` → 觸發 `<a download>` → `setTimeout(100ms)` 清理
+- [x] 新增 `downloading` state + `disabled` 防止連點
+- [x] 用 `canSwitchRole` 條件隱藏按鈕(admin 預覽 teacher 視角時按鈕也消失,跟「🗂 完整版」邏輯一致)
 
-**驗收**：admin 看到下載按鈕能下載原檔;teacher 看不到按鈕,手動打 /download API 也被 403 擋。
+**驗收結果（4 項全過）**：
+- ✅ admin 能下載,檔名是原始檔名（非 uuid.mp3）
+- ✅ teacher 看不到下載按鈕
+- ✅ teacher 手動透過 DevTools Console 打 `/download` API → 403「需要管理員權限」
+- ✅ admin 預覽 teacher 視角時按鈕隱藏,切回本人恢復
 
 ---
 
-### Week 3 Sprint 3D — 個人化 Schema
+### Week 3 Sprint 3D — 個人化 Schema（Phase 1/2/3 全完成）✅
 
-**時間估計**：約 1-2 天
-**插入位置**：Sprint 3C 之後、Sprint 3E 之前
-**緣由**：原 Roadmap 只規劃了「使用者帳號」跟「觀看紀錄」,但漏了**使用者在系統裡會累積的東西**（筆記、書籤、續看進度、搜尋歷史）。沒有這層,系統對使用者來說還是「匿名查資料」而不是「自己的知識庫」。
+**完成日期**：2026/04/20
+**目標**：讓系統從「匿名查資料」升級成「自己的知識庫」——使用者會累積筆記、書籤、續看進度、搜尋歷史,不再是「每次都像第一次進來」。
+**商業價值**：把 stickiness 做起來。使用者寫越多筆記、累積越多書籤,越離不開系統。
 
-**新增表**：
+---
 
-| 新表 | 欄位 | 用途 |
-|------|------|------|
-| `user_notes` | id, user_id, video_id, content, timestamp_sec, created_at, updated_at | 使用者在某支影片的私人筆記（可選附時間戳） |
-| `user_bookmarks` | id, user_id, video_id, start_time, note, created_at | 標記影片某段「這段重要」 |
-| `watch_progress` | user_id, video_id, last_position_sec, completed_at, updated_at | 續看用（PK: user_id + video_id） |
-| `search_history` | id, user_id, query, result_count, searched_at | Admin 儀表板要做「熱門搜尋詞」的資料源 |
-| `activity_log` | id, user_id, action, target_type, target_id, metadata, created_at | 審計 + debug + 使用率分析 |
+#### Phase 1 — 地基（後端 + Schema）✅
 
-**前端任務**：
-- [ ] VideoDetail 右側加「我的筆記」面板（drawer 或 tab）
-- [ ] 影片段落旁邊加「🔖 加書籤」按鈕
-- [ ] Dashboard 加「繼續觀看」區塊（列出 watch_progress 未完成的）
-- [ ] `/api/search` 呼叫時寫 search_history
-- [ ] 所有寫入操作補寫 activity_log
+**Step 1-1：5 張新表 schema + 6 個索引**
+- [x] `user_notes` (id, user_id, video_id, content, `timestamp_sec REAL NULL`, created_at, updated_at)
+- [x] `user_bookmarks` (id, user_id, video_id, `start_time REAL NOT NULL`, note, created_at)
+- [x] `watch_progress` (user_id, video_id 組合 PK, last_position_sec, completed_at, updated_at)
+- [x] `search_history` (id, user_id, query, result_count, searched_at)
+- [x] `activity_log` (id, user_id NULL, action, target_type, target_id, metadata JSON, created_at)
+- [x] 索引：每張表都有 user_id + context 組合索引,總共 6 個
+
+**Step 1-2：`log_activity()` helper + 在 login endpoint 接上**
+- [x] `db.log_activity(user_id, action, target_type, target_id, metadata)` 寫失敗不拖垮主流程（try/except + log & swallow）
+- [x] `db.list_activities(user_id, action, limit)` 查詢 helper(metadata 自動 parse JSON 回來)
+- [x] `POST /api/auth/login` 接上,寫入 `action="login"` + metadata 含 email/role
+
+**Step 1-3：其他 4 張表的 CRUD helpers**
+- [x] Notes:create / get / list / update / delete(依 timestamp 升冪,整體筆記殿後按 created_at 降冪)
+- [x] Bookmarks:create / get / list / delete（依 start_time 升冪）
+- [x] Progress:`upsert_progress()` UPSERT 邏輯;`completed=True` 時用 `COALESCE(completed_at, ?)` 保留首次完成時間
+- [x] Progress:`list_in_progress(user_id, limit)` INNER JOIN videos + 過濾 `completed_at IS NULL` + `status='done'`
+- [x] Search history:`record_search` / `list_user_searches` / `top_queries`(admin 儀表板用) / `list_user_recent_queries`(MAX(id) GROUP BY query 去重) / `delete_search_query`(單刪) / `clear_user_search_history`(全清)
+
+**Step 1-4：接上 11 個事件 + 順便修 3 個技術債**
+
+接上 activity_log 事件（所有重要寫入動作）：
+- [x] `view_video_detail` / `edit_video`（含 changes diff metadata） / `delete_video` / `reprocess_video`
+- [x] `record_view`(含 completed metadata) / `create_task` / `toggle_task`
+- [x] `upload_video`(含 title/file_type/filesize) / `download_video`
+- [x] `search`(同時寫 search_history 跟 activity_log,用途不同)
+
+**順便修的技術債**（這三個 endpoint 原本完全沒 auth 擋）：
+- [x] `DELETE /api/videos/{id}` 加 `require_admin`(原本任何登入者都能刪影片)
+- [x] `POST /api/videos/{id}/reprocess` 加 `require_admin`(原本 teacher 能觸發花 OpenAI 錢的分析)
+- [x] `GET /api/search` 加 `get_current_user`(原本沒登入也能搜)
 
 **驗收**：
-- 使用者重登入後仍看得到自己的筆記跟書籤
-- 關影片頁再打開能從上次位置繼續
-- Dashboard 正確顯示未看完的影片
+- ✅ 登入 + 上傳 + 看詳情 + 編輯 + 加任務 + 打勾 + 下載 + 搜尋 → activity_log 8 個不同 action 都有紀錄
+- ✅ `[edit_video]` 的 metadata 正確記錄 visibility 從 confidential → public
+- ✅ `[toggle_task]` 3 筆分別是 True/False/True(三次點擊狀態變化全記錄)
+- ✅ search_history 筆數 = activity_log 的 search 筆數
 
 ---
+
+#### Phase 2 — 看得見的功能 ✅
+
+**Step 2-1：續看進度**
+- [x] 後端 `GET /api/videos/{id}/progress` + `PUT /api/videos/{id}/progress`
+- [x] 後端防呆：負值截 0、超過 duration+5 秒截 duration（防 edge case）
+- [x] `PUT` **不寫 activity_log**(每 10 秒一次會把 log 灌爆噪音)
+- [x] 前端 VideoDetail：`savedPosition` + `progressApplied` + `lastSavedPositionRef` 三個 state
+- [x] 自動載入舊進度：只在 `!completed_at && last_position_sec > 5` 才 seek（太早的位置沒意義）
+- [x] Seek 時機：`streamToken` 就緒 + media 的 `loadedmetadata` 後做一次,toast「已從 XX:XX 繼續播放」
+- [x] 自動存進度三重保障：
+  - 定時 10 秒一次（playing 狀態下）
+  - `pause` / `ended` event 補一次
+  - `beforeunload` 用 `keepalive: true` 讓關頁面也能送出
+- [x] `completed` 標記：`ended` event 觸發時自動標 `completed_at = now()`
+
+**Step 2-2：我的筆記**
+- [x] 後端 CRUD：`GET/POST /api/videos/{id}/notes`、`PUT/DELETE /api/notes/{note_id}`
+- [x] 後端權限：list 需要 `can_view_video`、update/delete 檢查 user_id 擁有權
+- [x] 後端防呆：空白 400、超過 2000 字 400
+- [x] activity_log：`create_note` / `update_note` / `delete_note`
+- [x] 新增 `frontend/src/components/NotesPanel.jsx`：可新增(可選綁時間戳)、編輯、刪除
+- [x] VideoDetail 加 `currentTime` state + `timeupdate` event 每秒更新 1 次（避免每幀都 setState 卡頓）
+- [x] Sidebar layout 重構：用 flex column + gap 12,放在觀看紀錄之前
+- [x] 筆記排序：段落筆記按 start_time 升冪,整體筆記殿後按 created_at 降冪
+
+**Step 2-3：Dashboard「繼續觀看」**
+- [x] 後端 `GET /api/progress/in-progress?limit=6`(max 20 防呆)
+- [x] Dashboard 加 `inProgress` state + `loadInProgress` loader + mount 時呼叫
+- [x] 新增 `ContinueCard` 元件(VideoCard 的簡化版)：icon + 標題 + 進度條 + 「上次看到 XX:XX」 + 相對時間
+- [x] 空清單時整塊隱藏(`{inProgress.length > 0 && ...}`,不用「暫無紀錄」placeholder)
+- [x] 插入位置：Stats 之後、Type pills 之前(進 Dashboard 第一眼可見的最佳位置)
+
+---
+
+#### Phase 3 — 收尾功能 ✅
+
+**Step 3-1：書籤**
+- [x] 後端 CRUD：`GET/POST /api/videos/{id}/bookmarks` + `DELETE /api/bookmarks/{id}`
+- [x] 後端權限：跟 notes 一樣的擁有權檢查(只能刪自己的)
+- [x] 後端防呆：start_time 負值 400、備註超過 500 字 400
+- [x] activity_log：`create_bookmark` / `delete_bookmark`
+- [x] 新增 `frontend/src/components/BookmarksPanel.jsx`:
+  - 文件/PPT (`canSeek=false`) 回傳 null,整個不顯示
+  - 用 `refreshToken` prop 讓外部事件能觸發 reload
+- [x] VideoDetail 加 `bookmarkRefresh` state + `handleQuickBookmark` handler
+- [x] `TabSummary` 關鍵段落旁邊加「🔖」快速書籤按鈕(傳 `onQuickBookmark` prop),帶入段落 title 當 note
+
+**Step 3-2：搜尋頁升級 + 單筆/整批刪除**
+- [x] 後端新增 3 個 endpoint:
+  - `GET /api/search/history?limit=10`(去重後最新)
+  - `DELETE /api/search/history`(整批清)
+  - `DELETE /api/search/history/item` body 帶 query(單筆刪)
+- [x] 去重實作：`WHERE id IN (SELECT MAX(id) ... GROUP BY query)`(避免 sear/sea/s/search 都佔 chip 位置)
+- [x] 前端 Search.jsx 加「🕐 最近搜尋」chip 區
+- [x] Chip 結構：左半「查詢文字 · 結果數」按鈕 + 右半「✕」單刪按鈕(兩個子按鈕包在一個 span 容器)
+- [x] 互動:點 chip 文字 → 快速重搜;點 ✕ → 刪單筆(`e.stopPropagation()` 防冒泡);最右邊「✕ 清除」→ 整批清
+- [x] 搜尋完自動 reload history(最新 chip 跳最前)
+- [x] `api.js` 的 `delete()` 擴充為支援 optional body(向下相容,原本沒帶 body 的呼叫不受影響)
+- [x] Empty state 條件調整:`!searched && history.length === 0` 才顯示「📚 輸入關鍵字開始搜尋」(有歷史就省掉)
+
+---
+
+**Sprint 3D 整體驗收通過事項（按重要性排序）**：
+- ✅ **權限隔離**：admin / teacher 各自只看到自己的 notes / bookmarks / progress / search_history(**Sprint 3D 最核心的保證**)
+- ✅ 續看進度：關頁面再進來 toast「已從 00:10 繼續播放」,播放器在正確位置
+- ✅ 播完自動標 `completed_at`,下次打開不再 seek 回去(guard 條件 `!p.completed_at` 生效)
+- ✅ 文件/PPT 類型正確隱藏書籤面板(`canSeek=false` → null)
+- ✅ Dashboard 沒未完成影片時「繼續觀看」整塊隱藏
+- ✅ 搜尋歷史 chip 去重有效:連打 sear/seag/seagu/seagul 只留「seagul」1 個 chip
+- ✅ 11 個 activity_log 事件都寫入成功(手動查 DB 驗證)
+- ✅ 書籤面板 refreshToken 機制:關鍵段落「🔖」按鈕加書籤後,右側書籤面板自動 reload
+- ✅ 搜尋單筆刪除 + 整批清除兩種模式都可用
+
+---
+
+## 🚧 待完成
 
 ### Week 3 Sprint 3E — AI 小測驗系統（新增 · 2026/04/19）
 
@@ -414,7 +534,7 @@ video-traning-system/
 
 **新增表**：
 ```
-quizzes                  # 每支影片一組測驗（一對一）
+quizzes                  # 每支影片一組測驗(一對一)
 ├─ id, video_id (FK UNIQUE)
 ├─ questions (JSON)      # [{q, type, options, answer, explanation}, ...]
 └─ created_at
@@ -429,10 +549,10 @@ quiz_attempts            # 誰答過、答得如何
 **後端任務**：
 - [ ] `ai_service.py` 加 `generate_quiz(transcript, summary, key_points)` 函式
 - [ ] Prompt 設計：5 題單選 + 答案解釋（用 GPT-4o）
-- [ ] `POST /api/videos/{id}/quiz/generate`（admin 專用,重新生成覆蓋）
-- [ ] `GET /api/videos/{id}/quiz`（拿題目,隱藏答案）
-- [ ] `POST /api/videos/{id}/quiz/attempt`（提交答案,回傳成績 + 解釋）
-- [ ] `GET /api/videos/{id}/quiz/attempts`（列出所有嘗試紀錄,依權限過濾）
+- [ ] `POST /api/videos/{id}/quiz/generate`(admin 專用,重新生成覆蓋)
+- [ ] `GET /api/videos/{id}/quiz`(拿題目,隱藏答案)
+- [ ] `POST /api/videos/{id}/quiz/attempt`(提交答案,回傳成績 + 解釋)
+- [ ] `GET /api/videos/{id}/quiz/attempts`(列出所有嘗試紀錄,依權限過濾)
 - [ ] 擴展權限：teacher 看自己的紀錄;principal 看同分校;admin 看全部
 
 **前端任務**：
@@ -462,7 +582,7 @@ quiz_attempts            # 誰答過、答得如何
 - [ ] 搜尋結果回傳段落級：命中段落時回傳段落內容 + 時間戳
 - [ ] `Search.jsx` 顯示段落級結果（點擊跳到影片對應時間）
 - [ ] 加「相關影片推薦」（基於 embedding 相似度）
-- [ ] **搜尋結果套用權限過濾**（現在沒有,是 Sprint 3C 的漏網）
+- [ ] **搜尋結果套用權限過濾**（目前 `/api/search` 會回所有結果,沒擋可見度 → Week 4 Must）
 
 ---
 
@@ -473,13 +593,14 @@ quiz_attempts            # 誰答過、答得如何
 - [ ] 新增 `/admin` route（僅 admin）
 - [ ] 跨影片觀看率矩陣
 - [ ] 未完成任務清單
-- [ ] 熱門搜尋詞統計（吃 Sprint 3D 的 search_history）
+- [ ] 熱門搜尋詞統計（吃 Sprint 3D 的 `search_history` 和 `top_queries()` helper）
 - [ ] **測驗成績統計**（吃 Sprint 3E 的 quiz_attempts）
 - [ ] 異常提示：長期沒看、沒人看、任務逾期
-- [ ] 各分校使用率對比
+- [ ] 各分校使用率對比(吃 Sprint 3D 的 activity_log)
 - [ ] 匯出管理報表
 - [ ] 使用者管理頁
 - [ ] **分校管理頁（可切換 subscription_status）**
+- [ ] **「以分校視角預覽」工具**:admin 可以選一個真實分校 + 真實 user 來模擬他們看到什麼,彌補目前視角切換只改 UI 不改資料的限制
 
 ---
 
@@ -504,8 +625,8 @@ quiz_attempts            # 誰答過、答得如何
 
 - [ ] PPT 用 LibreOffice 轉圖片,前端做輪播預覽
 - [ ] PDF 用 pdf.js 做內嵌預覽
-- [ ] Admin 可下載任何原檔（audit log）— 這個 Sprint 3C Phase 4 已做基礎版
-- [ ] `VideoDetail.jsx` 載入效能優化
+- [x] ~~Admin 可下載任何原檔~~ → Sprint 3C Phase 4 已做,只剩加 audit log（已被 activity_log 覆蓋一部分）
+- [ ] `VideoDetail.jsx` 載入效能優化 + **拆檔**(目前 1000+ 行)
 - [ ] 手機 RWD 檢查
 
 ---
@@ -517,7 +638,7 @@ quiz_attempts            # 誰答過、答得如何
 **原有項目**：
 - [ ] CORS 收斂
 - [ ] Rate limiting（`slowapi`）
-- [ ] Audit log 表（已被 Sprint 3D 的 activity_log 覆蓋）
+- [ ] ~~Audit log 表~~ 已被 Sprint 3D 的 activity_log 覆蓋
 - [ ] Upload streaming write
 - [ ] Production .env 模板
 - [ ] JWT 改用 httpOnly cookie
@@ -532,10 +653,12 @@ quiz_attempts            # 誰答過、答得如何
 **新增項目（架構洞察）**：
 - [ ] **檔案儲存遷移**：本機 `uploads/` → 物件儲存（S3 / MinIO / Cloudflare R2 擇一）或外接掛載磁碟
 - [ ] **自動備份機制**（正式版）：Postgres pg_dump 每日 + 檔案目錄 rsync 異地
-- [ ] **資料保留政策**：刪除影片時相關 notes/bookmarks/views 怎麼處理（CASCADE vs SET NULL）
+- [ ] **資料保留政策**：刪除影片時相關 notes/bookmarks/views/activity_log 怎麼處理（CASCADE vs SET NULL）
 - [ ] **資料匯出功能**：給分校「退租」時能帶走自己 branch 的資料（JSON 匯出）
 - [ ] **分校資料隔離從應用層強制到 DB 層**（Row Level Security 或每查詢強制 `WHERE branch_id = ?`）
 - [ ] **Stream token 升級**：目前 JWT 2 小時效期,上線前考慮縮到 30 分鐘 + 支援續簽
+- [ ] **DB_PATH 改絕對路徑或環境變數**(消除「相對路徑 + 換目錄 = 誤連空 DB」的陷阱)
+- [ ] **activity_log 歸檔策略**:上線後累積很快,需要定期歸檔/分表/刪除老資料
 
 ---
 
@@ -586,18 +709,39 @@ quiz_attempts            # 誰答過、答得如何
 | 2026/04/19 | **新增 Sprint 3E AI 測驗系統** | 使用者洞察:光有摘要不夠,「證明學會了」才是完整產品 |
 | 2026/04/19 | **MVP 的 `internal` visibility 等同 admin only** | 精緻化 principal 權限放 Sprint 3D 或 Week 5;先做核心 |
 | 2026/04/19 | **`PUT /api/videos/{id}` 要求 admin 身份** | 連帶 visibility 是敏感設定,非 admin 完全不能改影片 |
+| 2026/04/20 | **`/download` 用 `require_admin` + fetch blob 而非 URL 帶 token** | JWT 塞 URL 會寫進瀏覽器歷史、referrer、server log;fetch blob 用 Authorization header 較安全 |
+| 2026/04/20 | **`/reprocess` 加 `require_admin`** | 原本 teacher 能觸發 OpenAI 花錢呼叫;補上這個技術債 |
+| 2026/04/20 | **`DELETE /api/videos/{id}` 加 `require_admin`** | 原本任何登入者都能刪影片,補上權限擋牆 |
+| 2026/04/20 | **`GET /api/search` 加 `get_current_user`** | 原本沒登入也能搜,補上權限;順便能寫 search_history |
+| 2026/04/20 | **筆記可選綁時間戳,書籤必綁** | 筆記既能寫「這支以後給新人看」(整體)也能寫「這段很重要」(段落);書籤語意就是「標記某一秒」,不需要整體書籤 |
+| 2026/04/20 | **`log_activity()` 寫失敗不 raise(log & swallow)** | activity_log 是輔助用途,不該成為關鍵路徑。DB 爆炸或 lock 不該拖垮登入/上傳等核心操作 |
+| 2026/04/20 | **`progress` PUT 不寫 activity_log** | 每 10 秒一筆會把 activity_log 灌爆噪音;真正的觀看事件靠 `view_video_detail` 代表 |
+| 2026/04/20 | **續看進度自動 seek 的門檻:`last_position_sec > 5` 秒** | < 5 秒的位置 seek 回去沒意義(幾乎是從頭),直接當 fresh start 體驗更好 |
+| 2026/04/20 | **續看進度三重保障:10s interval + pause/ended event + beforeunload keepalive** | 單一機制都有漏洞;interval 需要 playing、event 需要正確 dispatch、unload 有 keepalive 才送得出去。三者疊加才穩 |
+| 2026/04/20 | **Dashboard「繼續觀看」為空時整塊隱藏,而非顯示「無紀錄」** | 空 placeholder 會讓 Dashboard 看起來像沒資料的壞掉狀態;沒資料就不顯示最乾淨 |
+| 2026/04/20 | **搜尋歷史 chip 以 query 為 key 去重(MAX(id) GROUP BY query)** | 「hic / hick / hickor / hickory」是同一個意圖的連打,只留最後版本比較不吵 |
+| 2026/04/20 | **搜尋單筆刪除用 POST body 傳 query 而非 URL path** | 中文/空格/特殊字元進 URL path 會踩 encoding 問題;改 body 最穩。副作用:api.js 的 `delete()` 要擴成支援 optional body |
+| 2026/04/20 | **Notes/Bookmarks 用 Panel 元件模式,不塞進 VideoDetail** | 未來拆 VideoDetail 時(技術債)這些元件能直接單獨被其他頁用(例如 Week 5 admin 儀表板想看每支影片總筆記數) |
+| 2026/04/20 | **BookmarksPanel 在文件/PPT 類型直接 return null** | 「可以加書籤但沒有」跟「這類型本來就不能加書籤」是不同語意;null 比空清單更清楚 |
 
 ---
 
 ## ⚠️ 已知問題 / 技術債
 
+**已解決(2026/04/20)**:
+- ✅ ~~`DELETE /api/videos/{id}` 沒權限檢查~~ → 改用 `require_admin`(Sprint 3D Phase 1)
+- ✅ ~~`POST /api/videos/{id}/reprocess` 沒權限檢查~~ → 改用 `require_admin`(Sprint 3D Phase 1)
+- ✅ ~~`GET /api/search` 沒 auth~~ → 加 `get_current_user`(Sprint 3D Phase 1)
+- ✅ ~~原檔下載沒獨立端點,混在 /file~~ → Sprint 3C Phase 4 拆出 /download
+
 **高優先（會影響未來功能）**：
-- [ ] **VideoDetail.jsx 太長**（920+ 行）,3D/3E 時拆檔
+- [ ] **VideoDetail.jsx 超長**（1000+ 行,Sprint 3D 又加了一些 state/effect）,Sprint 3E 前先拆檔
 - [ ] **uploads/ 目錄沒存取控制**（/file 有 stream token 擋了,但檔案系統層面沒擋;Week 8）
 - [ ] **分校資料隔離靠應用層不靠 DB 層**（Week 8 擴充）
-- [ ] **`/api/search` 沒套權限過濾**（Week 4 處理）
+- [ ] **`/api/search` 沒套可見度過濾**(登入有擋,但結果列表本身會回傳所有 status='done' 的,包含 confidential;Week 4 處理)
 - [ ] **首頁統計卡片沒套權限過濾**:teacher 看到「資料總數 4」但實際只顯示 3 支可見,數字跟畫面兜不上
-- [ ] **teacher 登入時若網址是某支看不到的影片,直接顯示「找不到資料」**：應該導回首頁比較友善
+- [ ] **teacher 登入時若網址是某支看不到的影片,直接顯示「找不到資料」**:應該導回首頁比較友善
+- [ ] **視角切換不過濾機密影片**:admin 切「老師視角」時後端回的仍是 admin 全清單(視角切換只改 UI 不送到後端);Week 5 admin 儀表板加「以分校視角預覽」工具
 
 **中優先（Week 8 前解決）**：
 - [ ] **CORS 全開** `allow_origins=["*"]`
@@ -609,6 +753,8 @@ quiz_attempts            # 誰答過、答得如何
 - [ ] **Upload 整個檔案進 memory**,大檔會 OOM
 - [ ] **SQLite 多租戶限制**,上線前要換 PostgreSQL
 - [ ] **Internal visibility 目前等同 admin only**（未來要精緻化為 principal 可見）
+- [ ] **DB_PATH 相對路徑陷阱**:在非 backend 目錄跑 `sqlite3.connect('training.db')` 會靜默建空 DB(Week 8 改絕對路徑)
+- [ ] **`progress` PUT 沒 server-side rate limit**:前端雖有 3 秒節流,拖進度條仍可能連發幾次;Week 5 觀察流量再決定
 
 **低優先（體驗改善）**：
 - [ ] **PDF 輸出的內嵌 CSS 仍是舊藍色 `#3b82f6`**（品牌統一時順手改）
@@ -631,6 +777,7 @@ quiz_attempts            # 誰答過、答得如何
 - git commit 用多行建議 `git commit` 打開編輯器貼（避免引號問題）
 - **一次塞太多 step 會迷路,分 Phase 給、每步驗收完再給下一步最有效**
 - **擔心技術選型走向（SQLite → PostgreSQL 等）,需要安心「現在做的不會白費」**
+- **會主動提出產品層面的想法(例如「單筆刪除也要有」、「能不能出小測驗」),要認真當 feature request 處理**
 
 ### 互動的節奏
 1. 先確認方向（1-3 個問題）
@@ -647,7 +794,7 @@ quiz_attempts            # 誰答過、答得如何
 - 正因為他會問,所以 progress.md 裡才會有「Sprint 3D」「Sprint 3E」「Week 8 擴充」「訂閱制商業模型釐清」這些後加的區塊
 - 這個使用者**產品直覺很好**（問「只有分析沒原檔不完整」、「都是總部管理員」等）,要認真回應,不要敷衍
 
-### 今天（2026/04/19）踩過的坑（給未來 Claude）
+### 2026/04/19 踩過的坑（Sprint 3B/3C 期間）
 1. **後端 Python 改動必須手動重啟**（Ctrl+C → `python app.py`）,Python 沒有像 Vite 那樣的熱重載。Sprint 3C 中途就因為這個浪費了時間
 2. **auth.py 的常數叫 `JWT_SECRET` 和 `JWT_ALGORITHM`**,不是 `SECRET_KEY` / `ALGORITHM`。寫新函式前先 grep 一下實際名稱
 3. **`<video>/<audio>` 標籤不能帶 Authorization header**,受保護的 media 資源必須用 stream token + URL query 參數
@@ -657,11 +804,29 @@ quiz_attempts            # 誰答過、答得如何
 7. **FastAPI 500 錯誤要去後端 terminal 看 traceback**,curl 只會看到 Internal Server Error
 8. **向使用者講解時要白話**,「FK 化」「RBAC」這種術語他不熟,用比喻更有效（例如用 Netflix 比喻訂閱制）
 
+### 2026/04/20 踩過的坑(Sprint 3C Phase 4 + 3D 整輪)
+1. **Python 沒熱重載,今天又踩一次**(Sprint 3D Phase 3 單筆刪除 endpoint 404)。這個坑會反覆出現,驗收 404 第一件事就是問「後端重啟了嗎」
+2. **`DB_PATH` 相對路徑陷阱**:使用者在專案根目錄下 `python -c` 測試 → SQLite 靜默建空 DB 不報錯 → 看到 `no such table` 以為資料沒了,其實是連錯 DB。提醒使用者「在 backend/ 目錄下執行」
+3. **`api.delete(url, body)` 要特別擴充**:原本 api wrapper 的 DELETE 不吃 body,Sprint 3D 3-2 要單刪需要 body 帶 query,所以順便擴充成 optional body。向下相容 fine
+4. **URL path 塞中文會炸**:`DELETE /api/search/history/{query}` 如果 query 是「招生話術」會踩 encoding 問題,改用 POST body 最穩
+5. **續看進度的 edge case 很多**:< 5 秒位置不 seek、seek 要等 `loadedmetadata`、`beforeunload` 要 `keepalive:true`、pause/ended 都要補存,一次寫漏一個就體驗爆掉
+6. **書籤面板對文件類型要回 null 而非顯示空清單**:「可以加書籤但沒有」跟「這類型本來就不能加書籤」要分開。null 最乾淨
+7. **前端同步 list 的模式**:Dashboard 的 inProgress、Search 的 history,都要在完成相關操作後 reload(搜完要 reload history、刪完要從 state filter 掉;兩種都能用但建議一致化)
+8. **前端 `el.readyState >= 1` 要查**:載入 media metadata 時若 el 已經 ready,要立刻 doSeek,不能依賴 `loadedmetadata` event(因為可能已經 fire 過)
+
 ### 踩過的雷 / 使用者環境特性
 - WSL（Windows 底下的 Ubuntu）,ffmpeg 用 apt 裝
 - 上傳檔案常是 iPhone 的 .mov（H.264）,需要 ffmpeg 抽音軌
 - git commit 用 `-m "..."` 如果有雙引號會壞,要教他用 `git commit` 開編輯器
 - **資料庫檔叫 `training.db` 不是 `app.db`**（最早 handoff 寫錯,一直沿用糾正中）
+- **複製指令時會連 shell prompt 一起複製**(例如 `(venv) (base) herry@...$`),造成 shell syntax error。提醒「只複製指令本身」
+- **會截圖 DevTools Console 裡的錯誤**,這是好習慣,直接貼就能 debug
+
+### 使用者成長軌跡(觀察)
+- 週一:跟著做,看不太懂架構
+- 週二-三:開始問「這些資料存哪」「壞掉怎麼辦」等架構問題
+- 週四:開始主動提出產品 feature(小測驗、單筆刪除),從被動驗收轉向主動設計
+- 對技術選型信心增加,不再擔心「現在的東西會不會白做」
 
 ### 原始需求（六大模組）
 長頸鹿 AI 校園整體規劃：

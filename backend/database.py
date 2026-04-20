@@ -141,6 +141,85 @@ def init_db():
         )
     """)
 
+    # ── Sprint 3D: 個人化相關表 ─────────────────────────
+
+    # 筆記：整體筆記（timestamp_sec=NULL）或段落筆記（timestamp_sec 有值）
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            video_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp_sec REAL,
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (video_id) REFERENCES videos(id)
+        )
+    """)
+
+    # 書籤：標記影片某一秒為重點
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_bookmarks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            video_id TEXT NOT NULL,
+            start_time REAL NOT NULL,
+            note TEXT,
+            created_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (video_id) REFERENCES videos(id)
+        )
+    """)
+
+    # 續看進度：一人一影片一筆（composite primary key）
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS watch_progress (
+            user_id TEXT NOT NULL,
+            video_id TEXT NOT NULL,
+            last_position_sec REAL NOT NULL DEFAULT 0,
+            completed_at TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, video_id),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (video_id) REFERENCES videos(id)
+        )
+    """)
+
+    # 搜尋歷史：個人 + admin 儀表板用熱門搜尋詞
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS search_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            query TEXT NOT NULL,
+            result_count INTEGER DEFAULT 0,
+            searched_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    # 行為日誌：審計 + debug + 使用率分析（所有重要事件都寫這裡）
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            action TEXT NOT NULL,
+            target_type TEXT,
+            target_id TEXT,
+            metadata TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    # 常用查詢的索引（讓列表查詢快）
+    c.execute("CREATE INDEX IF NOT EXISTS idx_user_notes_user_video ON user_notes(user_id, video_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_user_bookmarks_user_video ON user_bookmarks(user_id, video_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_watch_progress_user ON watch_progress(user_id, updated_at DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(user_id, searched_at DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(user_id, created_at DESC)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_activity_log_action ON activity_log(action, created_at DESC)")
+
     conn.commit()
     conn.close()
 
@@ -607,3 +686,342 @@ def public_user(user: Dict) -> Dict:
     d = dict(user)
     d.pop('password_hash', None)
     return d
+
+# ── Sprint 3D: Activity Log（所有 Phase 的事件都寫這裡） ────
+
+def log_activity(user_id: Optional[str], action: str,
+                 target_type: Optional[str] = None,
+                 target_id: Optional[str] = None,
+                 metadata: Optional[Dict] = None):
+    """
+    記錄使用者行為。
+    - user_id 可以 None（系統操作或未登入情境）
+    - metadata 吃 dict，內部轉成 JSON 存
+    - 寫失敗不會讓主流程掛掉（log & swallow）；activity_log 不該成為關鍵路徑
+    """
+    try:
+        conn = get_conn()
+        c = conn.cursor()
+        now = datetime.now().isoformat()
+        c.execute("""
+            INSERT INTO activity_log (user_id, action, target_type, target_id, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            user_id,
+            action,
+            target_type,
+            target_id,
+            json.dumps(metadata, ensure_ascii=False) if metadata else None,
+            now,
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        # 不 raise，避免拖垮主流程；但印出來方便 debug
+        print(f"[WARN] log_activity failed: action={action} user={user_id} err={e}")
+
+
+def list_activities(user_id: Optional[str] = None, action: Optional[str] = None,
+                    limit: int = 100) -> List[Dict]:
+    """
+    列出 activity_log 記錄，用於 debug / 未來的 admin 儀表板。
+    - user_id 指定 → 只看這個人的
+    - action 指定 → 只看這個動作
+    - 兩者都 None → 看全部最近的
+    """
+    conn = get_conn()
+    c = conn.cursor()
+    query = "SELECT * FROM activity_log WHERE 1=1"
+    params = []
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    if action:
+        query += " AND action = ?"
+        params.append(action)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    c.execute(query, params)
+    rows = c.fetchall()
+    conn.close()
+    # parse metadata JSON 回來
+    results = []
+    for r in rows:
+        d = dict(r)
+        if d.get("metadata"):
+            try:
+                d["metadata"] = json.loads(d["metadata"])
+            except Exception:
+                pass  # 保留原字串，debug 看
+        results.append(d)
+    return results
+
+# ── Sprint 3D: User Notes ──────────────────────────────
+
+def create_note(user_id: str, video_id: str, content: str,
+                timestamp_sec: Optional[float] = None) -> Dict:
+    """建立筆記。timestamp_sec=None 表示整體筆記；有值表示綁定影片某秒。"""
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute("""
+        INSERT INTO user_notes (user_id, video_id, content, timestamp_sec, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, video_id, content, timestamp_sec, now, now))
+    note_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return get_note(note_id)
+
+def get_note(note_id: int) -> Optional[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM user_notes WHERE id = ?", (note_id,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def list_notes(user_id: str, video_id: str) -> List[Dict]:
+    """列出某人在某影片的所有筆記，時間戳筆記先按時間排，整體筆記放後面依新到舊。"""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT * FROM user_notes
+        WHERE user_id = ? AND video_id = ?
+        ORDER BY 
+            CASE WHEN timestamp_sec IS NULL THEN 1 ELSE 0 END,
+            timestamp_sec ASC,
+            created_at DESC
+    """, (user_id, video_id))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def update_note(note_id: int, content: str) -> Optional[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute("UPDATE user_notes SET content = ?, updated_at = ? WHERE id = ?",
+              (content, now, note_id))
+    conn.commit()
+    conn.close()
+    return get_note(note_id)
+
+def delete_note(note_id: int):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM user_notes WHERE id = ?", (note_id,))
+    conn.commit()
+    conn.close()
+
+# ── Sprint 3D: User Bookmarks ──────────────────────────
+
+def create_bookmark(user_id: str, video_id: str, start_time: float,
+                    note: str = "") -> Dict:
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute("""
+        INSERT INTO user_bookmarks (user_id, video_id, start_time, note, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (user_id, video_id, start_time, note, now))
+    bookmark_id = c.lastrowid
+    conn.commit()
+    conn.close()
+    return get_bookmark(bookmark_id)
+
+def get_bookmark(bookmark_id: int) -> Optional[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM user_bookmarks WHERE id = ?", (bookmark_id,))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def list_bookmarks(user_id: str, video_id: str) -> List[Dict]:
+    """列出某人在某影片的所有書籤，依時間戳順序。"""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT * FROM user_bookmarks
+        WHERE user_id = ? AND video_id = ?
+        ORDER BY start_time ASC
+    """, (user_id, video_id))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def delete_bookmark(bookmark_id: int):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM user_bookmarks WHERE id = ?", (bookmark_id,))
+    conn.commit()
+    conn.close()
+
+# ── Sprint 3D: Watch Progress ──────────────────────────
+
+def upsert_progress(user_id: str, video_id: str, last_position_sec: float,
+                    completed: bool = False) -> Dict:
+    """
+    更新續看進度。UPSERT 模式：沒記錄就插入、有就更新。
+    completed=True 時同時設 completed_at。
+    """
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    # 檢查是否已存在
+    c.execute("SELECT user_id FROM watch_progress WHERE user_id = ? AND video_id = ?",
+              (user_id, video_id))
+    exists = c.fetchone()
+    if exists:
+        if completed:
+            c.execute("""
+                UPDATE watch_progress 
+                SET last_position_sec = ?, completed_at = COALESCE(completed_at, ?), updated_at = ?
+                WHERE user_id = ? AND video_id = ?
+            """, (last_position_sec, now, now, user_id, video_id))
+        else:
+            c.execute("""
+                UPDATE watch_progress SET last_position_sec = ?, updated_at = ?
+                WHERE user_id = ? AND video_id = ?
+            """, (last_position_sec, now, user_id, video_id))
+    else:
+        completed_at = now if completed else None
+        c.execute("""
+            INSERT INTO watch_progress 
+            (user_id, video_id, last_position_sec, completed_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, video_id, last_position_sec, completed_at, now))
+    conn.commit()
+    conn.close()
+    return get_progress(user_id, video_id)
+
+def get_progress(user_id: str, video_id: str) -> Optional[Dict]:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT * FROM watch_progress WHERE user_id = ? AND video_id = ?
+    """, (user_id, video_id))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def list_in_progress(user_id: str, limit: int = 10) -> List[Dict]:
+    """
+    列出使用者還沒看完的影片（completed_at IS NULL），依最近觀看排序。
+    Dashboard 的「繼續觀看」區塊會用這個。
+    LEFT JOIN videos 確保被刪除的影片不會出現。
+    """
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT wp.*, v.title, v.file_type, v.duration, v.category, v.status
+        FROM watch_progress wp
+        INNER JOIN videos v ON wp.video_id = v.id
+        WHERE wp.user_id = ? 
+          AND wp.completed_at IS NULL
+          AND v.status = 'done'
+        ORDER BY wp.updated_at DESC
+        LIMIT ?
+    """, (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+# ── Sprint 3D: Search History ──────────────────────────
+
+def record_search(user_id: str, query: str, result_count: int = 0):
+    """記錄一次搜尋。"""
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute("""
+        INSERT INTO search_history (user_id, query, result_count, searched_at)
+        VALUES (?, ?, ?, ?)
+    """, (user_id, query, result_count, now))
+    conn.commit()
+    conn.close()
+
+def list_user_searches(user_id: str, limit: int = 50) -> List[Dict]:
+    """某人的搜尋歷史（最近的）。"""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT * FROM search_history WHERE user_id = ?
+        ORDER BY searched_at DESC LIMIT ?
+    """, (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def top_queries(days: int = 30, limit: int = 20) -> List[Dict]:
+    """
+    熱門搜尋詞（admin 儀表板用）。
+    回傳：[{query, cnt, last_searched_at}, ...]
+    """
+    conn = get_conn()
+    c = conn.cursor()
+    # SQLite 的日期比較：searched_at 是 ISO 字串，直接字典序比較 OK
+    cutoff = (datetime.now().timestamp() - days * 86400)
+    from datetime import datetime as _dt
+    cutoff_iso = _dt.fromtimestamp(cutoff).isoformat()
+    c.execute("""
+        SELECT query, COUNT(*) as cnt, MAX(searched_at) as last_searched_at
+        FROM search_history
+        WHERE searched_at >= ?
+        GROUP BY query
+        ORDER BY cnt DESC, last_searched_at DESC
+        LIMIT ?
+    """, (cutoff_iso, limit))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def list_user_recent_queries(user_id: str, limit: int = 10) -> List[Dict]:
+    """
+    個人最近搜尋（去重後的最新 N 個）。
+    回傳：[{query, result_count, searched_at}, ...]
+    用 MAX(id) 取每個獨特 query 的最新那筆 → 避免「hic/hick/hicko/hickory」四個變形都佔位。
+    """
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT query, result_count, searched_at
+        FROM search_history
+        WHERE id IN (
+            SELECT MAX(id) FROM search_history
+            WHERE user_id = ?
+            GROUP BY query
+        )
+        ORDER BY searched_at DESC
+        LIMIT ?
+    """, (user_id, limit))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def clear_user_search_history(user_id: str) -> int:
+    """清空某使用者的搜尋歷史，回傳刪除筆數。"""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM search_history WHERE user_id = ?", (user_id,))
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+
+def delete_search_query(user_id: str, query: str) -> int:
+    """
+    刪除某使用者的某個特定 query 的所有紀錄。
+    （同個 query 歷史上可能搜過多次，這裡一次全刪；因為前端是 chip 去重顯示，
+    刪一個 chip 對應的是「這個 query 不要在最近搜尋列表看到」的語意）
+    回傳刪除筆數。
+    """
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM search_history WHERE user_id = ? AND query = ?",
+              (user_id, query))
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return deleted

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../utils/api.js'
 import { CategoryBadge } from '../components/Badges.jsx'
@@ -9,6 +9,18 @@ export default function Search() {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [history, setHistory] = useState([])  // Sprint 3D: 個人搜尋歷史
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await api.get('/api/search/history?limit=10')
+      setHistory(res.history || [])
+    } catch {
+      /* 失敗就當沒歷史 */
+    }
+  }, [])
+
+  useEffect(() => { loadHistory() }, [loadHistory])
 
   const doSearch = useCallback(async (q) => {
     const trimmed = q.trim()
@@ -18,18 +30,46 @@ export default function Search() {
     try {
       const { results } = await api.get(`/api/search?q=${encodeURIComponent(trimmed)}`)
       setResults(results)
+      // 搜尋完重新載入歷史（因為這次搜尋會寫進 history）
+      loadHistory()
     } catch {
       setResults([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadHistory])
 
   const handleChange = (e) => {
     const val = e.target.value
     setQuery(val)
     clearTimeout(window._searchTimer)
     window._searchTimer = setTimeout(() => doSearch(val), 400)
+  }
+
+  const applyHistory = (q) => {
+    setQuery(q)
+    doSearch(q)
+  }
+
+  const clearHistory = async () => {
+    if (!confirm('確定清除所有搜尋歷史？')) return
+    try {
+      await api.delete('/api/search/history')
+      setHistory([])
+    } catch (e) {
+      alert('清除失敗：' + e.message)
+    }
+  }
+
+  // Sprint 3D: 刪除搜尋歷史中的單一 query
+  const removeHistoryItem = async (e, q) => {
+    e.stopPropagation()  // 避免點到 × 時也觸發外層 chip 的 onClick 去搜尋
+    try {
+      await api.delete('/api/search/history/item', { query: q })
+      setHistory(prev => prev.filter(h => h.query !== q))
+    } catch (err) {
+      alert('刪除失敗：' + err.message)
+    }
   }
 
   const getSnippet = (result, q) => {
@@ -92,6 +132,91 @@ export default function Search() {
           </div>
         </div>
 
+        {/* 最近搜尋（Sprint 3D）— 有歷史才顯示 */}
+        {history.length > 0 && (
+          <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>🕐 最近搜尋</span>
+            {history.map(h => (
+              <span
+                key={h.query}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  background: '#fff',
+                  border: '1px solid var(--border)',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  color: 'var(--text-secondary)',
+                  transition: 'all 0.15s',
+                  overflow: 'hidden',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = 'var(--primary)'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = 'var(--border)'
+                }}
+              >
+                <button
+                  onClick={() => applyHistory(h.query)}
+                  title={`上次找到 ${h.result_count} 筆結果`}
+                  style={{
+                    padding: '4px 4px 4px 10px',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'inherit',
+                    fontFamily: 'inherit',
+                    fontSize: 'inherit',
+                  }}
+                >
+                  {h.query}
+                  {h.result_count > 0 && (
+                    <span style={{ marginLeft: 4, fontSize: 11, opacity: 0.6 }}>
+                      ·{h.result_count}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => removeHistoryItem(e, h.query)}
+                  title="移除這筆歷史"
+                  style={{
+                    padding: '4px 8px 4px 4px',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    fontFamily: 'inherit',
+                    fontSize: 11,
+                    opacity: 0.5,
+                    transition: 'opacity 0.15s, color 0.15s',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.opacity = 1
+                    e.currentTarget.style.color = 'var(--error)'
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.opacity = 0.5
+                    e.currentTarget.style.color = 'var(--text-muted)'
+                  }}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            <button
+              onClick={clearHistory}
+              style={{
+                padding: '4px 10px', fontSize: 11, background: 'transparent',
+                border: 'none', cursor: 'pointer', color: 'var(--error)',
+                fontFamily: 'inherit',
+              }}
+            >
+              ✕ 清除
+            </button>
+          </div>
+        )}
+
         {/* Results */}
         {loading && (
           <div style={{ textAlign: 'center', padding: 20 }}>
@@ -130,7 +255,7 @@ export default function Search() {
           </>
         )}
 
-        {!loading && !searched && (
+        {!loading && !searched && history.length === 0 && (
           <div className="empty-state">
             <div className="empty-icon" style={{ opacity: 0.3 }}>📚</div>
             <div className="empty-title" style={{ color: 'var(--text-muted)' }}>輸入關鍵字開始搜尋</div>

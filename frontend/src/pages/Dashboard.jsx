@@ -31,6 +31,7 @@ export default function Dashboard() {
   const [status,   setStatus]   = useState('all')
   const [fileType, setFileType] = useState('all')
   const [topics, setTopics] = useState([])
+  const [inProgress, setInProgress] = useState([])  // Sprint 3D: 繼續觀看
   const { showToast } = useToast()
 
   const loadStats = useCallback(async () => {
@@ -38,6 +39,16 @@ export default function Dashboard() {
       const s = await api.get('/api/stats')
       setStats(s)
     } catch {}
+  }, [])
+
+  // Sprint 3D: 載入「繼續觀看」清單
+  const loadInProgress = useCallback(async () => {
+    try {
+      const res = await api.get('/api/progress/in-progress?limit=6')
+      setInProgress(res.in_progress || [])
+    } catch {
+      /* 失敗就當沒有，不影響主流程 */
+    }
   }, [])
 
   const loadVideos = useCallback(async () => {
@@ -69,6 +80,7 @@ export default function Dashboard() {
   }, [loadVideos])
 
   useEffect(() => { loadStats() }, [loadStats])
+  useEffect(() => { loadInProgress() }, [loadInProgress])
 
   // Poll processing videos
   useEffect(() => {
@@ -109,6 +121,25 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+
+        {/* 繼續觀看（Sprint 3D）— 有未完成影片才顯示 */}
+        {inProgress.length > 0 && (
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, gap: 8 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>📺 繼續觀看</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {inProgress.length} 支未完成
+              </div>
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+              gap: 12,
+            }}>
+              {inProgress.map(item => <ContinueCard key={item.video_id} item={item} />)}
+            </div>
+          </div>
+        )}
 
         {/* Type pills */}
         <div className="type-pills">
@@ -204,5 +235,107 @@ export default function Dashboard() {
         )}
       </div>
     </>
+  )
+}
+
+// ── Sprint 3D: Continue Watching Card ──────────────────
+
+const TYPE_ICON = { video: '🎬', audio: '🎵', document: '📄', pptx: '📊' }
+
+function ContinueCard({ item }) {
+  const progress = item.duration ? Math.min(100, (item.last_position_sec / item.duration) * 100) : 0
+  const icon = TYPE_ICON[item.file_type] || '📁'
+
+  // 格式化位置
+  const mm = Math.floor(item.last_position_sec / 60)
+  const ss = Math.floor(item.last_position_sec % 60)
+  const posStr = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
+
+  // 多久前
+  const updated = new Date(item.updated_at)
+  const diffMin = Math.floor((Date.now() - updated) / 60000)
+  const timeAgo = diffMin < 1 ? '剛剛'
+    : diffMin < 60 ? `${diffMin} 分鐘前`
+    : diffMin < 1440 ? `${Math.floor(diffMin / 60)} 小時前`
+    : `${Math.floor(diffMin / 1440)} 天前`
+
+  return (
+    <Link
+      to={`/video/${item.video_id}`}
+      style={{ textDecoration: 'none', color: 'inherit' }}
+    >
+      <div
+        style={{
+          background: '#fff',
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+          padding: 14,
+          cursor: 'pointer',
+          transition: 'box-shadow 0.15s, border-color 0.15s',
+          height: '100%',
+          boxSizing: 'border-box',
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(249, 115, 22, 0.12)'
+          e.currentTarget.style.borderColor = 'var(--primary)'
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.boxShadow = 'none'
+          e.currentTarget.style.borderColor = 'var(--border)'
+        }}
+      >
+        {/* 標題列：icon + 標題 */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+          <span style={{ fontSize: 18, flexShrink: 0 }}>{icon}</span>
+          <div
+            style={{
+              fontSize: 13.5,
+              fontWeight: 600,
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: 'var(--text)',
+            }}
+            title={item.title}
+          >
+            {item.title}
+          </div>
+        </div>
+
+        {/* 進度條 */}
+        <div
+          style={{
+            height: 5,
+            background: 'var(--border)',
+            borderRadius: 3,
+            marginBottom: 6,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              width: `${progress}%`,
+              height: '100%',
+              background: 'var(--primary)',
+              transition: 'width 0.3s',
+            }}
+          />
+        </div>
+
+        {/* 底部：位置 + 時間 */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontSize: 11,
+            color: 'var(--text-muted)',
+          }}
+        >
+          <span>▶ 上次看到 {posStr}</span>
+          <span>{timeAgo}</span>
+        </div>
+      </div>
+    </Link>
   )
 }

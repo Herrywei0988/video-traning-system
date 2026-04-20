@@ -138,7 +138,8 @@ async def upload_file(
         video_id=video_id, title=title, description=description,
         filename=file.filename, filepath=str(filepath),
         filesize=os.path.getsize(filepath), category=category,
-        uploader_name=uploader_name, file_type=file_type,
+        uploader_name=user["name"], file_type=file_type,
+        uploader_user_id=user["id"],
     )
     background_tasks.add_task(process_file_bg, video_id, str(filepath), title, description)
     return {"success": True, "video": video}
@@ -151,28 +152,42 @@ async def list_videos(
     status: Optional[str] = None,
     search: Optional[str] = None,
     file_type: Optional[str] = None,
+    user: dict = Depends(auth.get_current_user),
 ):
-    videos = db.list_videos(category=category, status=status, search=search, file_type=file_type)
+    videos = db.list_videos(
+        category=category, status=status, search=search, file_type=file_type,
+        viewer=user,
+    )
     return {"videos": videos}
 
 @app.get("/api/videos/{video_id}")
-async def get_video(video_id: str):
+async def get_video(video_id: str, user: dict = Depends(auth.get_current_user)):
     video = db.get_video(video_id)
     if not video:
         raise HTTPException(404, "找不到資料")
+    if not db.can_view_video(user, video):
+        raise HTTPException(403, "你沒有權限看這支影片")
     return {"video": video}
 
 class VideoUpdate(BaseModel):
     title: str
     description: str = ""
     category: str = "未分類"
+    visibility: Optional[str] = None  # 可選；不傳就不改
 
 @app.put("/api/videos/{video_id}")
-async def update_video(video_id: str, body: VideoUpdate):
+async def update_video(
+    video_id: str,
+    body: VideoUpdate,
+    user: dict = Depends(auth.require_admin),  # 只有 admin 能改
+):
     video = db.get_video(video_id)
     if not video:
         raise HTTPException(404, "找不到資料")
-    db.update_video(video_id, body.title, body.description, body.category)
+    # 驗證 visibility 合法值
+    if body.visibility is not None and body.visibility not in ("public", "internal", "confidential"):
+        raise HTTPException(400, "visibility 必須是 public / internal / confidential")
+    db.update_video(video_id, body.title, body.description, body.category, body.visibility)
     return {"success": True, "video": db.get_video(video_id)}
 
 @app.delete("/api/videos/{video_id}")
@@ -203,11 +218,38 @@ async def reprocess(video_id: str, background_tasks: BackgroundTasks):
 
 # ── API: File streaming ──────────────────────────────────
 
+@app.get("/api/videos/{video_id}/stream-token")
+async def get_stream_token(
+    video_id: str,
+    user: dict = Depends(auth.get_current_user),
+):
+    """發一張短期門票讓 <video>/<audio> 能播這支影片。"""
+    video = db.get_video(video_id)
+    if not video:
+        raise HTTPException(404, "找不到資料")
+    if not db.can_view_video(user, video):
+        raise HTTPException(403, "你沒有權限看這支影片")
+    token = auth.create_stream_token(user["id"], video_id)
+    return {"stream_token": token, "expires_in": auth.STREAM_TOKEN_EXP_SECONDS}
+
 @app.get("/api/videos/{video_id}/file")
-async def stream_file(video_id: str, request: Request):
+async def stream_file(
+    video_id: str, request: Request,
+    stream_token: Optional[str] = None,
+):
+    # 驗門票（不能用 Authorization header，因為 <video>/<audio> 標籤不支援）
+    if not stream_token:
+        raise HTTPException(401, "缺少 stream_token 參數")
+    user_id = auth.verify_stream_token(stream_token, video_id)
+    if not user_id:
+        raise HTTPException(401, "stream_token 無效或已過期")
     video = db.get_video(video_id)
     if not video or not video["filepath"]:
         raise HTTPException(404, "找不到資料")
+    # 雙保險：萬一發票後權限變了
+    viewer = db.get_user(user_id)
+    if not viewer or not db.can_view_video(viewer, video):
+        raise HTTPException(403, "你沒有權限看這支影片")
     
     filepath = video["filepath"]
     if not os.path.exists(filepath):
@@ -253,22 +295,32 @@ async def stream_file(video_id: str, request: Request):
 # ── API: Analysis ─────────────────────────────────────────
 
 @app.get("/api/videos/{video_id}/analysis")
-async def get_analysis(video_id: str):
+async def get_analysis(video_id: str, user: dict = Depends(auth.get_current_user)):
     video = db.get_video(video_id)
     if not video:
         raise HTTPException(404, "找不到資料")
+    if not db.can_view_video(user, video):
+        raise HTTPException(403, "你沒有權限看這支影片的分析")
     return {"analysis": db.get_analysis(video_id)}
 
 # ── API: Views ────────────────────────────────────────────
 
 class ViewRecord(BaseModel):
-    viewer_name: str = "匿名"
-    viewer_role: str = "老師"
     completed: bool = False
 
 @app.post("/api/videos/{video_id}/views")
-async def record_view(video_id: str, body: ViewRecord):
-    db.record_view(video_id, body.viewer_name, body.viewer_role, body.completed)
+async def record_view(
+    video_id: str,
+    body: ViewRecord,
+    user: dict = Depends(auth.get_current_user),
+):
+    db.record_view(
+        video_id,
+        viewer_name=user["name"],
+        viewer_role=user["role"],
+        completed=body.completed,
+        viewer_user_id=user["id"],
+    )
     return {"success": True}
 
 @app.get("/api/videos/{video_id}/views")
@@ -281,10 +333,18 @@ class TaskCreate(BaseModel):
     task_text: str
     assignee: str = ""
     due_date: str = ""
+    assignee_user_id: Optional[str] = None
 
 @app.post("/api/videos/{video_id}/tasks")
-async def create_task(video_id: str, body: TaskCreate):
-    task = db.create_task(video_id, body.task_text, body.assignee, body.due_date)
+async def create_task(
+    video_id: str,
+    body: TaskCreate,
+    user: dict = Depends(auth.get_current_user),
+):
+    task = db.create_task(
+        video_id, body.task_text, body.assignee, body.due_date,
+        assignee_user_id=body.assignee_user_id,
+    )
     return {"success": True, "task": task}
 
 @app.get("/api/videos/{video_id}/tasks")
@@ -292,7 +352,10 @@ async def get_tasks(video_id: str):
     return {"tasks": db.get_video_tasks(video_id)}
 
 @app.patch("/api/tasks/{task_id}/toggle")
-async def toggle_task(task_id: int):
+async def toggle_task(
+    task_id: int,
+    user: dict = Depends(auth.get_current_user),
+):
     task = db.toggle_task(task_id)
     return {"success": True, "task": task}
 

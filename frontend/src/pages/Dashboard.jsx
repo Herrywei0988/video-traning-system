@@ -13,7 +13,7 @@ const TYPE_PILLS = [
 ]
 
 const CATEGORIES = ['all','招生','續約','教學','班務','家長溝通','培訓','行政','品質管理','未分類']
-const TOPICS = ['招生','續約','教學','班務','家長溝通','培訓','行政','品質管理']
+const TOPICS = ['招生','續約','教學','班務','家長溝通','培訓','行政','品質管理','未分類']
 const STATUSES   = [
   { value: 'all', label: '所有狀態' },
   { value: 'done', label: '已完成' },

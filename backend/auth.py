@@ -95,3 +95,41 @@ async def require_admin(user: Dict = Depends(get_current_user)) -> Dict:
     if user.get("role") != "admin":
         raise HTTPException(403, "需要管理員權限")
     return user
+
+# ── Stream token（短期、單支影片專用）─────────────
+
+STREAM_TOKEN_EXP_SECONDS = 7200  # 2 小時
+
+
+def create_stream_token(user_id: str, video_id: str) -> str:
+    """
+    發一張「只能播這支影片、5 分鐘有效」的門票。
+    跟 login token 用同一把 secret key，但 payload 不同。
+    """
+    import time
+    payload = {
+        "kind": "stream",
+        "user_id": user_id,
+        "video_id": video_id,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + STREAM_TOKEN_EXP_SECONDS,
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def verify_stream_token(token: str, expected_video_id: str) -> Optional[str]:
+    """
+    驗票。成功回傳 user_id，失敗回 None。
+    - 過期 → 失敗
+    - 影片 ID 不符 → 失敗（防止用 A 影片的票偷看 B 影片）
+    - 不是 stream token → 失敗
+    """
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except Exception:
+        return None
+    if payload.get("kind") != "stream":
+        return None
+    if payload.get("video_id") != expected_video_id:
+        return None
+    return payload.get("user_id")

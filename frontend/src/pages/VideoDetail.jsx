@@ -22,7 +22,7 @@ export default function VideoDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { showToast } = useToast()
-  const { effectiveContentRole, isRealAdmin, isViewingAs } = useAuth()
+  const { user, effectiveContentRole, isRealAdmin, isViewingAs } = useAuth()
 
   // 真 admin 且未預覽視角時，可自由切換三個版本當預覽工具；其他情境下切換器隱藏
   const canSwitchRole = isRealAdmin && !isViewingAs
@@ -43,6 +43,7 @@ export default function VideoDetail() {
 
   const mediaRef = useRef(null)
   const [mediaError, setMediaError] = useState(false)
+  const [streamToken, setStreamToken] = useState(null)
 
   // Modals
   const [editOpen,     setEditOpen]     = useState(false)
@@ -51,6 +52,7 @@ export default function VideoDetail() {
   const [editTitle,    setEditTitle]    = useState('')
   const [editDesc,     setEditDesc]     = useState('')
   const [editCat,      setEditCat]      = useState('未分類')
+  const [editVisibility, setEditVisibility] = useState('public')
   const [taskText,     setTaskText]     = useState('')
   const [taskAssignee, setTaskAssignee] = useState('')
   const [taskDue,      setTaskDue]      = useState('')
@@ -90,6 +92,7 @@ export default function VideoDetail() {
         setEditTitle(vRes.video.title)
         setEditDesc(vRes.video.description ?? '')
         setEditCat(vRes.video.category ?? '未分類')
+        setEditVisibility(vRes.video.visibility ?? 'public')
       } catch (e) {
         showToast('載入失敗：' + e.message, 'error')
       } finally {
@@ -98,6 +101,17 @@ export default function VideoDetail() {
     }
     load()
   }, [id, showToast])
+
+  // 拿 stream token（只在影片 ready + 是 video/audio 時才拿）
+  useEffect(() => {
+    if (!video || video.status !== 'done') return
+    if (video.file_type !== 'video' && video.file_type !== 'audio') return
+    let cancelled = false
+    api.get(`/api/videos/${id}/stream-token`)
+      .then(res => { if (!cancelled) setStreamToken(res.stream_token) })
+      .catch(() => { /* 失敗就會 fallback 到 mediaError */ })
+    return () => { cancelled = true }
+  }, [id, video?.status, video?.file_type])
 
   // Poll when processing
   usePoll(id, video?.status, async (updated) => {
@@ -124,7 +138,10 @@ export default function VideoDetail() {
     if (!editTitle.trim()) { showToast('標題不可空白', 'error'); return }
     try {
       const { video: v } = await api.put(`/api/videos/${id}`, {
-        title: editTitle, description: editDesc, category: editCat
+        title: editTitle,
+        description: editDesc,
+        category: editCat,
+        visibility: editVisibility,
       })
       setVideo(v)
       setEditOpen(false)
@@ -256,7 +273,7 @@ const clearViews = async () => {
     📅 上傳：${formatDate(video.uploaded_at)}
     ${video.processed_at ? ` ⚙️ 分析完成：${formatDate(video.processed_at)}` : ''}
     ${video.duration ? ` ⏱ 時長：${formatDuration(video.duration)}` : ''}
-    　👤 ${video.uploader_name}　📁 ${video.category}
+    　👤 ${video.uploader?.name || video.uploader_name}　📁 ${video.category}
   </div>
   ${topics.length > 0 ? `<div>${topics.map(t => `<span class="tag">${t}</span>`).join('')}</div><br>` : ''}
 
@@ -409,7 +426,7 @@ const clearViews = async () => {
                 )
             }
             {video.filesize && <span>📦 {formatFileSize(video.filesize)}</span>}
-            <span>👤 {video.uploader_name}</span>
+            <span>👤 {video.uploader?.name || video.uploader_name}</span>
           </div>
           {topics.length > 0 && (
             <div style={{ marginTop: 12 }}>
@@ -428,10 +445,12 @@ const clearViews = async () => {
         {/* Media player: only for video/audio */}
         {video.status === 'done' && (video.file_type === 'video' || video.file_type === 'audio') && !mediaError && (
           <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
-            {video.file_type === 'video' ? (
+            {!streamToken ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>準備播放中...</div>
+            ) : video.file_type === 'video' ? (
               <video
                 ref={mediaRef}
-                src={`/api/videos/${id}/file`}
+                src={`/api/videos/${id}/file?stream_token=${streamToken}`}
                 controls
                 onError={() => setMediaError(true)}
                 style={{ width: '100%', display: 'block', maxHeight: 480, background: '#000' }}
@@ -440,7 +459,7 @@ const clearViews = async () => {
               <div style={{ padding: 16 }}>
                 <audio
                   ref={mediaRef}
-                  src={`/api/videos/${id}/file`}
+                  src={`/api/videos/${id}/file?stream_token=${streamToken}`}
                   controls
                   onError={() => setMediaError(true)}
                   style={{ width: '100%' }}
@@ -700,6 +719,19 @@ const clearViews = async () => {
             {CATEGORIES.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
+        {isRealAdmin && (
+          <div className="form-group">
+            <label className="form-label">可見度</label>
+            <select className="form-select" value={editVisibility} onChange={e => setEditVisibility(e.target.value)}>
+              <option value="public">🌐 公開 (public) — 所有訂閱分校可見</option>
+              <option value="internal">🏫 內部 (internal) — 僅校長層級可見</option>
+              <option value="confidential">🔒 機密 (confidential) — 僅總部可見</option>
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+              改為機密後，分校使用者會立刻看不到這支影片
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Add task modal */}

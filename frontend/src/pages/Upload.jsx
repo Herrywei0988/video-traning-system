@@ -17,7 +17,6 @@ export default function Upload() {
   const [title,       setTitle]       = useState('')
   const [description, setDescription] = useState('')
   const [category,    setCategory]    = useState('未分類')
-  const [uploader,    setUploader]    = useState('管理員')
   const [dragging,    setDragging]    = useState(false)
   const [progress,    setProgress]    = useState(0)
   const [uploading,   setUploading]   = useState(false)
@@ -51,10 +50,13 @@ export default function Upload() {
     fd.append('title', title)
     fd.append('description', description)
     fd.append('category', category)
-    fd.append('uploader_name', uploader || '管理員')
 
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/videos/upload')
+
+    // 帶上登入 token（後端需要 admin 身份）
+    const token = localStorage.getItem('giraffe_token')
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
 
     xhr.upload.addEventListener('progress', (e) => {
       if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
@@ -160,17 +162,11 @@ export default function Upload() {
             <textarea className="form-textarea" value={description} onChange={e => setDescription(e.target.value)}
               placeholder="簡單說明資料主題、目標對象或重點..." />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div className="form-group">
-              <label className="form-label">分類</label>
-              <select className="form-select" value={category} onChange={e => setCategory(e.target.value)}>
-                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">上傳者</label>
-              <input className="form-input" value={uploader} onChange={e => setUploader(e.target.value)} />
-            </div>
+          <div className="form-group">
+            <label className="form-label">分類</label>
+            <select className="form-select" value={category} onChange={e => setCategory(e.target.value)}>
+              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+            </select>
           </div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <Link to="/" className="btn btn-outline">取消</Link>

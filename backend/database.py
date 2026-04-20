@@ -62,8 +62,13 @@ def init_db():
         c.execute("ALTER TABLE views ADD COLUMN viewer_user_id TEXT")
     except Exception:
         pass
+    # Sprint 3C Phase 1: visibility + subscription
     try:
-        c.execute("ALTER TABLE tasks ADD COLUMN assignee_user_id TEXT")
+        c.execute("ALTER TABLE videos ADD COLUMN visibility TEXT DEFAULT 'public'")
+    except Exception:
+        pass
+    try:
+        c.execute("ALTER TABLE branches ADD COLUMN subscription_status TEXT DEFAULT 'active'")
     except Exception:
         pass
 
@@ -139,20 +144,45 @@ def init_db():
     conn.commit()
     conn.close()
 
+# ── Helpers ──────────────────────────────────────────────
+
+def _attach_user(row_dict: Dict, prefix: str, key_name: str) -> Dict:
+    """
+    把 SQL join 帶回來的 _xxx_id / _xxx_name 等欄位，
+    組成 row_dict[key_name] = {id, name, role, branch_id}，
+    然後清掉那些 _xxx 臨時欄位。
+    """
+    uid = row_dict.pop(f"_{prefix}_id", None)
+    uname = row_dict.pop(f"_{prefix}_name", None)
+    urole = row_dict.pop(f"_{prefix}_role", None)
+    ubranch = row_dict.pop(f"_{prefix}_branch_id", None)
+    if uid:
+        row_dict[key_name] = {
+            "id": uid,
+            "name": uname,
+            "role": urole,
+            "branch_id": ubranch,
+        }
+    else:
+        row_dict[key_name] = None
+    return row_dict
+
 # ── Videos ──────────────────────────────────────────────
 
 def create_video(video_id: str, title: str, description: str, filename: str,
                  filepath: str, filesize: int, category: str,
-                 uploader_name: str, file_type: str = 'video') -> Dict:
+                 uploader_name: str, file_type: str = 'video',
+                 uploader_user_id: Optional[str] = None) -> Dict:
     conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("""
         INSERT INTO videos (id, title, description, filename, filepath, filesize,
-                            category, file_type, status, uploader_name, uploaded_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                            category, file_type, status, uploader_name, uploaded_at,
+                            uploader_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
     """, (video_id, title, description, filename, filepath, filesize,
-          category, file_type, uploader_name, now))
+          category, file_type, uploader_name, now, uploader_user_id))
     conn.commit()
     conn.close()
     return get_video(video_id)
@@ -160,36 +190,103 @@ def create_video(video_id: str, title: str, description: str, filename: str,
 def get_video(video_id: str) -> Optional[Dict]:
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
+    c.execute("""
+        SELECT v.*,
+               u.id        AS _uploader_id,
+               u.name      AS _uploader_name,
+               u.role      AS _uploader_role,
+               u.branch_id AS _uploader_branch_id
+        FROM videos v
+        LEFT JOIN users u ON v.uploader_user_id = u.id
+        WHERE v.id = ?
+    """, (video_id,))
     row = c.fetchone()
     conn.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+    return _attach_user(dict(row), prefix="uploader", key_name="uploader")
 
-def list_videos(category: str = None, status: str = None,
-                search: str = None, file_type: str = None) -> List[Dict]:
+def can_view_video(viewer: Dict, video: Dict) -> bool:
+    """
+    判斷這個使用者能不能看這支影片。
+    admin 看全部；其他人需要分校訂閱 active + 影片 visibility='public'。
+    """
+    if not viewer:
+        return False
+    if viewer.get("role") == "admin":
+        return True
+    # 非 admin：檢查訂閱 + visibility
+    branch_id = viewer.get("branch_id")
+    if not branch_id:
+        return False
     conn = get_conn()
     c = conn.cursor()
-    query = "SELECT * FROM videos WHERE 1=1"
+    c.execute("SELECT subscription_status FROM branches WHERE id = ?", (branch_id,))
+    br = c.fetchone()
+    conn.close()
+    if not br or br["subscription_status"] != "active":
+        return False
+    return video.get("visibility") == "public"
+
+
+def list_videos(category: str = None, status: str = None,
+                search: str = None, file_type: str = None,
+                viewer: Optional[Dict] = None) -> List[Dict]:
+    """
+    viewer: 登入的使用者 dict（含 role, branch_id）。None = 不過濾（內部用，正常 API 會傳進來）
+    權限規則：
+      - admin: 看全部
+      - 其他 role: 只看 visibility='public'，且自己分校 subscription_status='active'
+    """
+    conn = get_conn()
+    c = conn.cursor()
+    query = """
+        SELECT v.*,
+               u.id        AS _uploader_id,
+               u.name      AS _uploader_name,
+               u.role      AS _uploader_role,
+               u.branch_id AS _uploader_branch_id
+        FROM videos v
+        LEFT JOIN users u ON v.uploader_user_id = u.id
+        WHERE 1=1
+    """
     params = []
+
+    # ── 權限過濾 ─────────────────────────
+    if viewer is not None and viewer.get("role") != "admin":
+        # 非 admin：檢查分校訂閱狀態
+        c2 = conn.cursor()
+        c2.execute("SELECT subscription_status FROM branches WHERE id = ?",
+                   (viewer.get("branch_id"),))
+        br = c2.fetchone()
+        if not br or br["subscription_status"] != "active":
+            # 分校過期或找不到 → 回空清單
+            conn.close()
+            return []
+        # 只能看 public
+        query += " AND v.visibility = 'public'"
+    # admin (or viewer=None): 不加過濾，看全部
+    # ─────────────────────────────────────
+
     if category and category != 'all':
         cats = category.split(',')
         placeholders = ','.join(['?' for _ in cats])
-        query += f" AND category IN ({placeholders})"
+        query += f" AND v.category IN ({placeholders})"
         params.extend(cats)
     if status and status != 'all':
-        query += " AND status = ?"
+        query += " AND v.status = ?"
         params.append(status)
     if file_type and file_type != 'all':
-        query += " AND file_type = ?"
+        query += " AND v.file_type = ?"
         params.append(file_type)
     if search:
-        query += " AND (title LIKE ? OR description LIKE ?)"
+        query += " AND (v.title LIKE ? OR v.description LIKE ?)"
         params.extend([f"%{search}%", f"%{search}%"])
-    query += " ORDER BY uploaded_at DESC"
+    query += " ORDER BY v.uploaded_at DESC"
     c.execute(query, params)
     rows = c.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [_attach_user(dict(r), prefix="uploader", key_name="uploader") for r in rows]
 
 def update_video_status(video_id: str, status: str, error_message: str = None,
                         duration: float = None, page_count: int = None):
@@ -210,11 +307,16 @@ def update_video_status(video_id: str, status: str, error_message: str = None,
     conn.commit()
     conn.close()
 
-def update_video(video_id: str, title: str, description: str, category: str):
+def update_video(video_id: str, title: str, description: str, category: str,
+                 visibility: Optional[str] = None):
     conn = get_conn()
     c = conn.cursor()
-    c.execute("UPDATE videos SET title=?, description=?, category=? WHERE id=?",
-              (title, description, category, video_id))
+    if visibility is not None:
+        c.execute("UPDATE videos SET title=?, description=?, category=?, visibility=? WHERE id=?",
+                  (title, description, category, visibility, video_id))
+    else:
+        c.execute("UPDATE videos SET title=?, description=?, category=? WHERE id=?",
+                  (title, description, category, video_id))
     conn.commit()
     conn.close()
 
@@ -274,14 +376,16 @@ def get_analysis(video_id: str) -> Optional[Dict]:
 
 # ── Views ────────────────────────────────────────────────
 
-def record_view(video_id: str, viewer_name: str, viewer_role: str, completed: bool = False):
+def record_view(video_id: str, viewer_name: str, viewer_role: str,
+                completed: bool = False, viewer_user_id: Optional[str] = None):
     conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("""
-        INSERT INTO views (video_id, viewer_name, viewer_role, viewed_at, completed)
-        VALUES (?, ?, ?, ?, ?)
-    """, (video_id, viewer_name, viewer_role, now, 1 if completed else 0))
+        INSERT INTO views (video_id, viewer_name, viewer_role, viewed_at, completed,
+                           viewer_user_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (video_id, viewer_name, viewer_role, now, 1 if completed else 0, viewer_user_id))
     conn.commit()
     conn.close()
 
@@ -289,24 +393,32 @@ def get_video_views(video_id: str) -> List[Dict]:
     conn = get_conn()
     c = conn.cursor()
     c.execute("""
-        SELECT viewer_name, viewer_role, viewed_at, completed
-        FROM views WHERE video_id = ?
-        ORDER BY viewed_at DESC
+        SELECT vw.viewer_name, vw.viewer_role, vw.viewed_at, vw.completed,
+               u.id        AS _viewer_id,
+               u.name      AS _viewer_name,
+               u.role      AS _viewer_role,
+               u.branch_id AS _viewer_branch_id
+        FROM views vw
+        LEFT JOIN users u ON vw.viewer_user_id = u.id
+        WHERE vw.video_id = ?
+        ORDER BY vw.viewed_at DESC
     """, (video_id,))
     rows = c.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [_attach_user(dict(r), prefix="viewer", key_name="viewer") for r in rows]
 
 # ── Tasks ────────────────────────────────────────────────
 
-def create_task(video_id: str, task_text: str, assignee: str, due_date: str) -> Dict:
+def create_task(video_id: str, task_text: str, assignee: str, due_date: str,
+                assignee_user_id: Optional[str] = None) -> Dict:
     conn = get_conn()
     c = conn.cursor()
     now = datetime.now().isoformat()
     c.execute("""
-        INSERT INTO tasks (video_id, task_text, assignee, due_date, completed, created_at)
-        VALUES (?, ?, ?, ?, 0, ?)
-    """, (video_id, task_text, assignee, due_date, now))
+        INSERT INTO tasks (video_id, task_text, assignee, due_date, completed, created_at,
+                           assignee_user_id)
+        VALUES (?, ?, ?, ?, 0, ?, ?)
+    """, (video_id, task_text, assignee, due_date, now, assignee_user_id))
     task_id = c.lastrowid
     conn.commit()
     conn.close()
@@ -323,10 +435,20 @@ def get_task(task_id: int) -> Optional[Dict]:
 def get_video_tasks(video_id: str) -> List[Dict]:
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT * FROM tasks WHERE video_id = ? ORDER BY created_at DESC", (video_id,))
+    c.execute("""
+        SELECT t.*,
+               u.id        AS _assignee_id,
+               u.name      AS _assignee_name,
+               u.role      AS _assignee_role,
+               u.branch_id AS _assignee_branch_id
+        FROM tasks t
+        LEFT JOIN users u ON t.assignee_user_id = u.id
+        WHERE t.video_id = ?
+        ORDER BY t.created_at DESC
+    """, (video_id,))
     rows = c.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [_attach_user(dict(r), prefix="assignee", key_name="assignee_user") for r in rows]
 
 def toggle_task(task_id: int) -> Dict:
     conn = get_conn()

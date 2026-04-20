@@ -39,7 +39,9 @@ export default function VideoCard({ video }) {
           <CategoryBadge category={video.category} />
           <span>📅 {formatDateShort(video.uploaded_at)}</span>
           {metaInfo()}
-          {video.uploader_name && <span>👤 {video.uploader_name}</span>}
+          {(video.uploader?.name || video.uploader_name) && (
+            <span>👤 {video.uploader?.name || video.uploader_name}</span>
+          )}
         </div>
       </div>
     </Link>

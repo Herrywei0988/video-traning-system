@@ -104,17 +104,19 @@ def init_db():
     """)
 
     c.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            video_id TEXT,
-            task_text TEXT,
-            assignee TEXT,
-            due_date TEXT,
-            completed INTEGER DEFAULT 0,
-            created_at TEXT,
-            FOREIGN KEY (video_id) REFERENCES videos(id)
-        )
-    """)
+    CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        video_id TEXT,
+        task_text TEXT,
+        assignee TEXT,
+        due_date TEXT,
+        completed INTEGER DEFAULT 0,
+        created_at TEXT,
+        assignee_user_id TEXT,
+        FOREIGN KEY (video_id) REFERENCES videos(id),
+        FOREIGN KEY (assignee_user_id) REFERENCES users(id)
+    )
+""")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS branches (
@@ -219,9 +221,20 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_search_history_user ON search_history(user_id, searched_at DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_log(user_id, created_at DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_activity_log_action ON activity_log(action, created_at DESC)")
+    
+    # ── Schema migrations（處理舊 DB 缺欄位的情況）──
+    _ensure_column(c, "tasks", "assignee_user_id", "TEXT")
+    # 以後每次新增欄位,就在這裡加一行,新舊 DB 都會自動同步
 
     conn.commit()
     conn.close()
+    
+def _ensure_column(cursor, table: str, column: str, col_def: str): 
+    cursor.execute(f"PRAGMA table_info({table})")
+    existing = [row[1] for row in cursor.fetchall()]
+    if column not in existing:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}")
+
 
 # ── Helpers ──────────────────────────────────────────────
 

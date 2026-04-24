@@ -27,3 +27,8 @@ backend/uploads/*
 .DS_Store
 
 backups/
+
+# Claude Code
+.claude/worktrees/
+.claude/memory/
+.claude/settings.local.json
